@@ -63,9 +63,7 @@ def Renyi_POP(sizes: List[int], freqs: List[float], c: float):
     ref_XY = P_X[:, None] * ref
 
     ref_max = ref_XY.max(axis=0)
-    is_ref_col = ref_XY.max(axis=0) > 0
-    ref_cols = np.nonzero(is_ref_col)
-    X_is_pinned = np.where(np.isin(np.arange(n), ref_cols), True, False)
+    X_is_pinned = ref_max > 0
 
     poss_Y_given_X = [[i] if X_is_pinned[i] else [
         j
