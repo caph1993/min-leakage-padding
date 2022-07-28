@@ -60,15 +60,14 @@ def Renyi_POP(sizes: List[int], freqs: List[float], c: float):
     # Assume sizes are sorted
     P_X = np.array(freqs)
     ref = Renyi_POP_basic(sizes, freqs, c)
-    ref_XY = P_X[:, None] * ref
+    P_XY = P_X[:, None] * ref
 
-    ref_max = ref_XY.max(axis=0)
-    X_is_pinned = ref_max > 0
+    P_XY_max = P_XY.max(axis=0)
 
-    poss_Y_given_X = [[i] if X_is_pinned[i] else [
+    poss_Y_given_X = [[
         j
         for j in range(i, n)
-        if sizes[j] <= c * sizes[i] and P_X[i] <= ref_max[j]
+        if sizes[j] <= c * sizes[i] and P_X[i] <= P_XY_max[j]
     ]
                       for i in range(n)]
     poss = poss_Y_given_X  # Shortcut
