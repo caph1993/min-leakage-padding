@@ -63,21 +63,19 @@ def Renyi_POP(sizes: List[int], freqs: List[float], c: float):
     P_XY = P_X[:, None] * ref
 
     P_XY_max = P_XY.max(axis=0)
+    check = lambda i, j: sizes[j] <= c * sizes[i] and P_X[i] <= P_XY_max[j]
 
-    poss_Y_given_X = [[
-        j
-        for j in range(i, n)
-        if sizes[j] <= c * sizes[i] and P_X[i] <= P_XY_max[j]
+    possibilities_Y_given_X = [
+        [j for j in range(i, n) if check(i, j)] for i in range(n)
     ]
-                      for i in range(n)]
-    poss = poss_Y_given_X  # Shortcut
+    poss = possibilities_Y_given_X  # Shortcut
 
     @lru_cache(maxsize=None)
     def f(LO: int, HI: int) -> Tuple[float, int, int, int]:
         '''
         Optimal assignment of the elements i such that
             - i is in [LO, HI)
-            - poss_Y_given_X[i] is a subset of [LO, HI)
+            - possibilities_Y_given_X[i] is a subset of [LO, HI)
         Divide and conquer strategy:
             As many elements as possible are assigned to a single j,
             and for the remaining elements, recursion is used.
