@@ -1,5 +1,6 @@
 import functools
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Callable, List, Optional, TypeVar, Union
 import numpy as np
 import matplotlib.pyplot as plt
@@ -62,11 +63,11 @@ def file_parser_iterator(path: Union[str, Path, None]):
     n_test_cases = int(next(stdin))
 
     def _iterator():
-        for tc in range(n_test_cases):
+        for tc in range(1, 1 + n_test_cases):
             n, c = int(next(stdin)), float(next(stdin))
             sizes = [int(next(stdin)) for _ in range(n)]
             freqs = [float(next(stdin)) for _ in range(n)]
-            yield tc + 1, n, c, sizes, freqs
+            yield tc, n, c, sizes, freqs
 
     return n_test_cases, iter(_iterator())
 
@@ -178,8 +179,11 @@ def plot_solution(
     if title is not None:
         ax.set_title(title)
     if save:
-        plt.savefig(save)
-        plt.close()
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir) / save.name
+            plt.savefig(tmp)
+            plt.close()
+            tmp.replace(save)
     elif _ax is None:
         plt.show()
     return

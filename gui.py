@@ -192,6 +192,7 @@ def main_GUI(title: Optional[str], open_empty: bool = False):
 class VisualizerPath(Path, Iterator[Tuple[Path, Path]]):
     _flavour = type(Path())._flavour  # type: ignore
     _counter = 0
+    _file: Optional[Any] = None
 
     def __next__(self) -> Tuple[Path, Path]:
         png = self.png()
@@ -204,6 +205,22 @@ class VisualizerPath(Path, Iterator[Tuple[Path, Path]]):
 
     def txt(self):
         return Path(self / f'{self._counter}.txt')
+
+    def plot_and_close(self, plt):
+        save = self.png()
+        with TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir) / save.name
+            plt.savefig(tmp)
+            plt.close()
+            tmp.replace(save)
+        next(self)
+        return
+
+    def print(self, *args, sep=' ', end='\n'):
+        if self._file is None:
+            self._file = self.txt().open('a')
+        self._file.write(sep.join(map(str, args)) + end)
+        return
 
 
 def new_visualizer(

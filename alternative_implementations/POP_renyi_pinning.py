@@ -4,9 +4,6 @@ from numpy.typing import NDArray
 from shared_functions import sorting_sizes
 from functools import lru_cache
 
-_T = TypeVar('_T', np.inexact, np.integer)
-_NDArray = NDArray[_T]
-
 
 @sorting_sizes
 def Renyi_POP_basic(sizes: Sequence[int], freqs: Sequence[float], c: float):
@@ -54,7 +51,7 @@ def Renyi_POP_basic(sizes: Sequence[int], freqs: Sequence[float], c: float):
 
 
 @sorting_sizes
-def Renyi_POP(sizes: List[int], freqs: List[float], c: float):
+def Renyi_POP_pinning(sizes: List[int], freqs: List[float], c: float):
     n = len(freqs)
 
     # Assume sizes are sorted
@@ -66,7 +63,10 @@ def Renyi_POP(sizes: List[int], freqs: List[float], c: float):
     check = lambda i, j: sizes[j] <= c * sizes[i] and P_X[i] <= P_XY_max[j]
 
     possibilities_Y_given_X = [
-        [j for j in range(i, n) if check(i, j)] for i in range(n)
+        [i] if P_XY_max[i] > 0 else [j
+                                     for j in range(i, n)
+                                     if check(i, j)]
+        for i in range(n)
     ]
     poss = possibilities_Y_given_X  # Shortcut
 
@@ -75,7 +75,6 @@ def Renyi_POP(sizes: List[int], freqs: List[float], c: float):
         '''
         Optimal assignment of the elements i such that
             - possibilities_Y_given_X[i] is a subset of [LO, HI)
-            - (as a consequence, also) i in [LO, HI)
         Divide and conquer strategy:
             As many elements as possible are assigned to a single j,
             and for the remaining elements, recursion is used.

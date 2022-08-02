@@ -1,5 +1,8 @@
+from dataclasses import dataclass
 from itertools import combinations
-from typing import Any, cast
+from argparse import ArgumentParser
+from pathlib import Path
+from typing import Any, Callable, List, Tuple, cast
 from POP_shannon import Shannon_POP
 from POP_renyi import Renyi_POP, Renyi_POP_basic
 from PRP_shannon import Shannon_PRP
@@ -9,107 +12,148 @@ import numpy as np
 
 from gui import new_visualizer
 from shared_functions import (
-    parse_command_line,
-    main_iterator,
+    file_parser_iterator,
     leakage_shannon,
     leakage_renyi,
     plot_solution,
     verify_solution,
 )
+from alternative_implementations.POP_renyi_bruteforce import (
+    Renyi_POP_bruteforce_1,
+    Renyi_POP_bruteforce_non_decreasing,
+)
+from alternative_implementations.POP_renyi_pinning import Renyi_POP_pinning
 
 
-def main():
-    test_file = parse_command_line(__doc__)
-    vpath = new_visualizer(title=test_file.name if test_file else 'STDIN')
+@dataclass
+class Solver:
+    i: int
+    name: str
+    solver: Callable[[List[int], List[float], float], np.ndarray]
+    marker: Any
+    alpha = 0.9
+
+
+def parse_args():
+    # Parse args
     solvers = {
-        #'Shannon_POP': Shannon_POP,
-        'Renyi_POP0': Renyi_POP_basic,
-        'Renyi_POP': Renyi_POP,
-        'Renyi_PRP': Renyi_PRP,
+        'Shannon_POP':
+            Shannon_POP,
+        'Renyi_POP0':
+            Renyi_POP_basic,
+        'Renyi_PRP':
+            Renyi_PRP,
+        'Renyi_POP':
+            Renyi_POP,
+        'Renyi_POP_bruteforce_1':
+            Renyi_POP_bruteforce_1,
+        'Renyi_POP_bruteforce_non_decreasing':
+            Renyi_POP_bruteforce_non_decreasing,
+        'Renyi_POP_pinning':
+            Renyi_POP_pinning,
         #'Renyi_POP_seb': Renyi_POP_sebastian,
-        #'Shannon_PRP': Shannon_PRP,
-        #'Renyi_PRP': Renyi_PRP,
+        'Shannon_PRP':
+            Shannon_PRP,
+        'Renyi_PRP':
+            Renyi_PRP,
         #'naive': naive,
     }
 
-    def make_datas():
-        datas = {}
-        examples = {tc: {} for tc in range(1, 11)}
-        for solver_name, solver in solvers.items():
-            print(solver_name)
-            data = []
-            for packet in main_iterator(test_file, solver):
-                tc, n, c, sizes, freqs, P_Y_given_X = packet
-                verify_solution(P_Y_given_X, sizes, freqs, c)
-                shannon = leakage_shannon(P_Y_given_X, freqs)
-                renyi = leakage_renyi(P_Y_given_X, freqs)
-                print(f'Case #{tc:3d}: ({n:3d} objects)'
-                      f' shannon={shannon:.5f} renyi={renyi:.5f}')
-                data.append((shannon, renyi))
-                if tc in examples:
-                    examples[tc][solver_name] = packet
-            datas[solver_name] = np.array(data, dtype=float)
-        return datas, examples
+    parser = ArgumentParser()
+    parser.add_argument('solver_main', type=str, default=None)
+    parser.add_argument('solver_ref', type=str, default=None,
+                        help='Solver to use as reference, e.g. POP_renyi')
+    parser.add_argument('test_cases', type=Path, default=None)
+    parser.add_argument('--n_examples', type=int, default=10)
+    args = parser.parse_args()
 
-    datas, examples = make_datas()
+    sol_name: str = args.solver_main
+    ref_name: str = args.solver_ref
+    test_file: Path = args.test_cases
+    n_examples = args.n_examples
 
-    markers = {
-        'POP_shannon': ('x', 1.0),
-        'POP_renyi': ('+', 1.0),
-        'POP_renyi_seb': ('x', 1.0),
-        'PRP_shannon': ('x', 1.0),
-        'PRP_renyi_car': ('x', 1.0),
-        'PRP_renyi_seb': ('+', 1.0),
-        'POP_renyi_shannon': ('x', 1.0),
-        'naive': ('o', 0.1),
-        'default': ('o', 0.1),
-    }
+    sol = Solver(i=0, name=sol_name, solver=solvers[sol_name], marker='x')
+    ref = Solver(i=1, name=ref_name, solver=solvers[ref_name], marker='+')
+    return sol, ref, test_file, n_examples
 
-    # REF = 'naive'
-    REF = 'POP_renyi'
 
-    def plot_diffs():
-        for solver_name, data in datas.items():
-            marker, alpha = markers.get(solver_name, markers['default'])
-            plt.scatter(x=data[:, 0], y=data[:, 1], label=solver_name,
-                        marker=marker, alpha=alpha)
-        plt.xlabel('Shannon leakage')
-        plt.ylabel('Rényi leakage')
+def main(sol: Solver, ref: Solver, test_file: Path, n_examples: int):
+
+    def plot_B(examples):
+        n = len(examples)
+        alpha = 1 if n < 10 else 1 / np.log10(n / 10)
+        renyi = np.zeros((n, 2))
+        shannon = np.zeros((n, 2))
+        sizes = np.zeros(n)
+
+        for s in [sol, ref]:
+            sizes[:] = np.array([e[0] for e in examples[:, s.i]])
+            renyi[:, s.i] = np.array([e[1] for e in examples[:, s.i]])
+            shannon[:, s.i] = np.array([e[2] for e in examples[:, s.i]])
+
+        plot_x = renyi[:, sol.i] - renyi[:, ref.i]
+        plot_y = shannon[:, sol.i] - shannon[:, ref.i]
+
+        plt.scatter(x=plot_x, y=plot_y, marker=cast(Any, 'x'), alpha=alpha)
+        plt_origin(plot_x, plot_y, s=1)
+        plt.xlabel(f'Rényi leakage ({sol.name} wrt {ref.name})')
+        plt.ylabel(f'Shannon leakage ({sol.name} wrt {ref.name})')
+        plt.title(f'{n} examples of avg. size {sizes.mean():.1f}')
+        vpath2.plot_and_close(plt)
+
+        plt.scatter(x=renyi[:, sol.i], y=shannon[:, sol.i], label=sol.name,
+                    marker=cast(Any, 'x'), alpha=alpha)
+        plt.scatter(x=renyi[:, ref.i], y=shannon[:, ref.i], label=ref.name,
+                    marker=cast(Any, '+'), alpha=alpha)
+        plt_origin(np.concatenate([renyi[:, sol.i], renyi[:, ref.i]]),
+                   np.concatenate([shannon[:, sol.i], shannon[:, ref.i]]), s=0)
+        plt.xlabel(f'Rényi leakage')
+        plt.ylabel(f'Shannon leakage')
         plt.legend()
-        plt.savefig(vpath / 'A.png')
-        plt.close()
+        plt.title(f'{n} examples of avg. size {sizes.mean():.1f}')
+        vpath3.plot_and_close(plt)
 
-        l = list(datas.items())
-        i = 0
-        for (name1, data1), (name2, data2) in combinations(l, 2):
-            diff = data1 - data2
-            fig, ax = plt.subplots()
-            ax.scatter(x=diff[:, 0], y=diff[:, 1], marker=cast(Any, 'x'),
-                       alpha=0.8)
-            ax.axhline(y=0, color='k')
-            ax.axvline(x=0, color='k')
-            plt.xlabel(f'Shannon {name1} minus {name2}')
-            plt.ylabel(f'Rényi {name1} minus {name2}')
-            #plt.legend()
-            plt.savefig(vpath / f'B{i}.png')
-            plt.close()
-            i += 1
+    def plt_origin(plot_x, plot_y, s=0):
+        plt.gca().axvline(x=0, color='k')
+        plt.gca().axhline(y=0, color='k')
+        lim_x = max(1e-6, np.max(np.abs(plot_x)))
+        lim_y = max(1e-6, np.max(np.abs(plot_y)))
+        plt.xlim(-(s + .1) * lim_x, 1.1 * lim_x)
+        plt.ylim(-(s + .1) * lim_y, 1.1 * lim_y)
 
-    plot_diffs()
+    # Run
+    n_cases, it = file_parser_iterator(test_file)
+    n_examples = min(n_examples, n_cases)
+    tc_full_examples = set(range(1, 1 + n_examples))
+    full_examples = [{} for _ in range(2)]
 
-    def plot_examples():
-        for tc in examples:
-            for solver_name in examples[tc]:
-                packet = examples[tc][solver_name]
-                tc, n, c, sizes, freqs, P_Y_given_X = packet
-                verify_solution(P_Y_given_X, sizes, freqs, c)
-                plot_solution(
-                    P_Y_given_X, sizes, freqs,
-                    title=f'{solver_name}. Case #{tc:3d} ({n:3d} objects)',
-                    save=vpath / f'D-{tc:03d}_{solver_name}.png')
+    full_examples = np.empty(shape=(n_examples, 2), dtype=object)
+    examples = np.empty(shape=(n_cases, 2), dtype=object)
 
-    plot_examples()
+    vpath1 = new_visualizer(title=test_file.name if test_file else 'STDIN')
+    vpath2 = new_visualizer(title=test_file.name if test_file else 'STDIN')
+    vpath3 = new_visualizer(title=test_file.name if test_file else 'STDIN')
+
+    for test_case in it:
+        tc, n, c, sizes, freqs = test_case
+        for s in [sol, ref]:
+            P_Y_given_X = s.solver(sizes, freqs, c)
+            verify_solution(P_Y_given_X, sizes, freqs, c)
+            shannon = leakage_shannon(P_Y_given_X, freqs)
+            renyi = leakage_renyi(P_Y_given_X, freqs)
+            print(f'Case #{tc:3d}: ({n:3d} objects)'
+                  f' renyi={renyi:.5f} shannon={shannon:.5f} {s.name}')
+            examples[tc - 1, s.i] = (n, renyi, shannon)
+            if tc in tc_full_examples:
+                full_examples[tc - 1, s.i] = P_Y_given_X
+                title = f'{s.name}. Case #{tc:3d} ({n:3d} objects)'
+                plot_solution(P_Y_given_X, sizes, freqs, title=title,
+                              save=vpath1 / f'A-{tc:03d}_{s.name}.png')
+        if tc % 100 == 0:
+            plot_B(examples[:tc])
+    plot_B(examples)
+    return
 
 
 if __name__ == '__main__':
-    main()
+    main(*parse_args())
