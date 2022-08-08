@@ -125,9 +125,7 @@ def main(sol: Solver, ref: Solver, test_file: Path, n_examples: int):
     n_cases, it = file_parser_iterator(test_file)
     n_examples = min(n_examples, n_cases)
     tc_full_examples = set(range(1, 1 + n_examples))
-    full_examples = [{} for _ in range(2)]
 
-    full_examples = np.empty(shape=(n_examples, 2), dtype=object)
     examples = np.empty(shape=(n_cases, 2), dtype=object)
 
     vpath1 = new_visualizer(title=test_file.name if test_file else 'STDIN')
@@ -136,6 +134,7 @@ def main(sol: Solver, ref: Solver, test_file: Path, n_examples: int):
 
     for test_case in it:
         tc, n, c, sizes, freqs = test_case
+        outputs = []
         for s in [sol, ref]:
             P_Y_given_X = s.solver(sizes, freqs, c)
             verify_solution(P_Y_given_X, sizes, freqs, c)
@@ -144,11 +143,22 @@ def main(sol: Solver, ref: Solver, test_file: Path, n_examples: int):
             print(f'Case #{tc:3d}: ({n:3d} objects)'
                   f' renyi={renyi:.5f} shannon={shannon:.5f} {s.name}')
             examples[tc - 1, s.i] = (n, renyi, shannon)
-            if tc in tc_full_examples:
-                full_examples[tc - 1, s.i] = P_Y_given_X
+            outputs.append((renyi, shannon, s.name, s, P_Y_given_X))
+
+        # if outputs[0] > outputs[1]: # Only "interesting" cases
+        if tc in tc_full_examples:
+            for (renyi, shannon, _, s, P_Y_given_X) in outputs:
                 title = f'{s.name}. Case #{tc:3d} ({n:3d} objects)'
                 plot_solution(P_Y_given_X, sizes, freqs, title=title,
-                              save=vpath1 / f'A-{tc:03d}_{s.name}.png')
+                              save=vpath1.png())
+                vpath1.print(f'Case #{tc:3d} ({n:3d} objects)')
+                vpath1.print(f'Sizes: {sizes}')
+                vpath1.print(f'Freqs: {freqs}')
+                vpath1.print(f'Renyi: {renyi}')
+                vpath1.print(f'Shannon: {shannon}')
+                vpath1.print(f'Output of {s.name}:')
+                vpath1.print(P_Y_given_X)
+                next(vpath1)
         if tc % 100 == 0:
             plot_B(examples[:tc])
     plot_B(examples)

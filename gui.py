@@ -197,6 +197,9 @@ class VisualizerPath(Path, Iterator[Tuple[Path, Path]]):
     def __next__(self) -> Tuple[Path, Path]:
         png = self.png()
         txt = self.txt()
+        if self._file:
+            self._file.close()
+            self._file = None
         self._counter += 1
         return png, txt
 
