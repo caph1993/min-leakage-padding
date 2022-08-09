@@ -2,7 +2,6 @@ How to execute all the examples of this repository:
 
 ```sh
 pip3 install matplotlib numpy Pillow PySimpleGUI
-python3 -c "from pathlib import Path; Path('./samples/').mkdir(exist_ok=True)"
 python3 generator_all.py samples --seed 0
 
 python3 comparison.py Renyi_POP Renyi_POP_bruteforce samples/xsmall-20000.txt

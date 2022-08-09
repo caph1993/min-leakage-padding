@@ -45,7 +45,7 @@ def parse_args():
             Renyi_PRP,
         'Renyi_POP':
             Renyi_POP,
-        'Renyi_POP_bruteforce_1':
+        'Renyi_POP_bruteforce':
             Renyi_POP_bruteforce_1,
         'Renyi_POP_bruteforce_non_decreasing':
             Renyi_POP_bruteforce_non_decreasing,

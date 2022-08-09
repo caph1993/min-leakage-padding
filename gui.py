@@ -81,7 +81,7 @@ def main_GUI(title: Optional[str], open_empty: bool = False):
     layout = [
         [
             sg.Text('Scanning'),
-            sg.Text(cwd),
+            sg.Text(str(cwd)),
             sg.Text('-', key='running', background_color='gray'),
         ],
         [
