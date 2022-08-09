@@ -13,28 +13,24 @@ def install_requirements():
 
 
 def test1():
-    run([
-        sys.executable,
-        cwd / 'comparison.py',
-        'Renyi_POP',
-        'Shannon_POP',
-        'samples/medium-200.txt',
-    ], stdout=PIPE)
+    cmp_args = [sys.executable, cwd / 'comparison.py']
+    run([*cmp_args, 'Renyi_PRP', 'Renyi_POP', 'samples/xsmall-200.txt'])
 
 
 def test2():
-    run([
-        sys.executable,
-        cwd / 'comparison.py',
-        'Renyi_POP',
-        'Shannon_POP',
-        'samples/xsmall-200.txt',
-    ], stdout=PIPE)
+    cmp_args = [sys.executable, cwd / 'comparison.py']
+    run([*cmp_args, 'Renyi_POP', 'Shannon_POP', 'samples/medium-200.txt'])
+
+
+def generate_all():
+    generator_args = [sys.executable, cwd / 'generator_all.py']
+    run([*generator_args, 'samples', '--seed', "0"])
 
 
 def main():
-    #install_requirements()
-    #test1()
+    install_requirements()
+    generate_all()
+    test1()
     test2()
     pass
 

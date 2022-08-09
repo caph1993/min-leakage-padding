@@ -15,7 +15,6 @@ parser.add_argument(
 parser.add_argument(
     '--seed',
     type=int,
-    nargs=1,
     default=0,
     help='seed for random number generator',
 )
