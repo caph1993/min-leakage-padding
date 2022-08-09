@@ -4,6 +4,8 @@ import sys
 
 cwd = Path(__file__).parent  # Working directory
 
+# For Sebastian, please run: conda init powershell
+
 
 def install_requirements():
     pip_args = [sys.executable, '-m', 'pip']
