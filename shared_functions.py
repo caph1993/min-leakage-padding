@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 from numpy.typing import NDArray
-from gui import new_visualizer as launch_viewer
+from gui import new_visualizer as launch_viewer, VisualizerPath
 
 
 def xlog2x(x: np.ndarray):
@@ -139,6 +139,8 @@ def plot_solution(
     title: Optional[str] = None,
     ax: Optional[plt.Axes] = None,
     save: Optional[Path] = None,
+    renyi=None,
+    shannon=None,
 ):
     S_X = np.array(sizes)
     P_X = np.array(freqs)
@@ -157,10 +159,12 @@ def plot_solution(
     ax.bar(S_X, P_X / P_X.max() * 0.45, color='tab:blue', bottom=1, width=width,
            alpha=0.8)
 
-    ax.text(x=max(S_X) * 1.1, y=0.5,
-            s=f'Rényi: {leakage_renyi(P_Y_given_X, freqs):.4f}')
-    ax.text(x=max(S_X) * 1.1, y=-0.5,
-            s=f'Shannon: {leakage_shannon(P_Y_given_X, freqs):.4f}')
+    if renyi is None:
+        renyi = leakage_renyi(P_Y_given_X, freqs)
+    if shannon is None:
+        shannon = leakage_shannon(P_Y_given_X, freqs)
+    ax.text(x=max(S_X) * 1.1, y=0.5, s=f'Rényi: {renyi:.4f}')
+    ax.text(x=max(S_X) * 1.1, y=-0.5, s=f'Shannon: {shannon:.4f}')
     ax.set_xlim([-max(S_X) * 0.1, max(S_X) * 1.5])
     for i in range(n):
         for j in range(n):
@@ -187,3 +191,30 @@ def plot_solution(
     elif _ax is None:
         plt.show()
     return
+
+
+def print_plot_solution(
+    vpath: VisualizerPath,
+    test_case,
+    name: str,
+    P_Y_given_X: np.ndarray,
+    title: Optional[str] = None,
+    renyi=None,
+    shannon=None,
+):
+    tc, n, c, sizes, freqs = test_case
+    if renyi is None:
+        renyi = leakage_renyi(P_Y_given_X, freqs)
+    if shannon is None:
+        shannon = leakage_shannon(P_Y_given_X, freqs)
+    if title is None:
+        title = f'{name}. Case #{tc:3d} ({n:3d} objects)'
+    plot_solution(P_Y_given_X, sizes, freqs, title=title, save=vpath.png())
+    vpath.print(f'Case #{tc:3d} ({n:3d} objects)')
+    vpath.print(f'Sizes: {sizes}')
+    vpath.print(f'Freqs: {freqs}')
+    vpath.print(f'Renyi: {renyi}')
+    vpath.print(f'Shannon: {shannon}')
+    vpath.print(f'Output of {name}:')
+    vpath.print(P_Y_given_X)
+    next(vpath)
