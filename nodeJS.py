@@ -17,10 +17,9 @@ def decorated(f):
 
     def xlog2x_sparse(x: dok_array):
         out = x.copy()
-        R, C = x.nonzero()
-        for r, c in zip(R, C):
-            value = out[r, c]
-            out[r, c] = value * np.log2(value)
+        mask = x.nonzero()
+        masked = x[mask].toarray()
+        out[mask] = masked * np.log2(masked)
         return out
 
     def xlog2x_array(x: NDArray):
@@ -32,11 +31,17 @@ def decorated(f):
     @wraps(f)
     def wrapper(sizes: List[int], freqs: List[float], c: float):
         assert np.allclose(np.sum(freqs), 1)
+        print('Running...')
         start = time.time()
-        P_Y_given_X: dok_array = f(sizes, freqs, c)
+        if c == 1.0:
+            P_Y_given_X = dok_array((len(sizes), len(sizes)))
+            P_Y_given_X.setdiag(1)
+        else:
+            P_Y_given_X: dok_array = f(sizes, freqs, c)
         end = time.time()
         elapsed = end - start
 
+        print('Computing join...')
         assert np.allclose(P_Y_given_X.sum(axis=1), 1)
         P_X = np.array(freqs)
         P_XY = P_Y_given_X.multiply(P_X[:, None]).asformat('dok')
@@ -53,20 +58,24 @@ def decorated(f):
             return renyi, shannon
 
         def bandwidths():
-            abs = P_XY.copy()
-            rel = P_XY.copy()
-            R, C = P_XY.nonzero()
-            for r, c in zip(R, C):
-                abs[r, c] = P_XY[r, c] * (sizes[c] - sizes[r])
-                rel[r, c] = P_XY[r, c] * (sizes[c] / sizes[r])
-            return abs.sum(), rel.sum()
+            S_X = np.array(sizes)
+            ones = P_XY.copy()
+            ones[ones.nonzero()] = 1
+            in_size = ones * S_X[:, None]
+            out_size = ones * S_X[None, :]
+            abs = (P_XY * (out_size - in_size)).sum()
+            rel = (P_XY * (out_size * in_size.power(-1))).sum()
+            return abs, rel
 
         # from shared_functions import leakage_renyi, leakage_shannon
         # print(leakage_renyi(P_Y_given_X.toarray(), freqs))
         # print(leakage_shannon(P_Y_given_X.toarray(), freqs))
 
+        print('Computing leakages...')
         renyi, shannon = leakages()
+        print('Computing bandwidths...')
         abs_bandwidth, rel_bandwidth = bandwidths()
+        print('Done.')
         return renyi, shannon, elapsed, abs_bandwidth, rel_bandwidth
 
     return wrapper
@@ -115,12 +124,16 @@ def nodeJS():
             f.write(f'{" ".join(map(str, sizes))}\n')
             f.write(f'{" ".join(map(str, freqs))}\n')
         print(f'Saved as {file}.')
+        print('Avg Bandwidth:', np.dot(sizes, freqs))
     _, _, _, sizes, freqs = next(file_parser_iterator(file)[1])
     return sizes, freqs
 
 
 def main():
     sizes, freqs = nodeJS()
+    print(Renyi_PRP(sizes, freqs, 1.0))
+
+    return
     with open('paper-cases/.output.txt', 'a') as f:
         for c in [1.05, 1.10, 1.15, 1.20, 1.25, 1.30]:
             # sizes = sizes[:1000]
