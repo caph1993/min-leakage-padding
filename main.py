@@ -49,12 +49,48 @@ def cases_1919_and_3384():
                 f'Case #{tc:3d}: ({n:3d} objects)'
                 f' delta-renyi={ours[0]-theirs[0]:.5f} delta-shannon={ours[1]-theirs[1]:.5f}'
             )
+            title = 'Padding scheme according to Renyi POP+'
+            if tc == 1919:
+                title = ''
             print_plot_solution(vpath1, test_case, 'Renyi_POP+', ours[2],
-                                renyi=ours[0], shannon=ours[1],
-                                title='Padding scheme according to Renyi POP+')
+                                renyi=ours[0], shannon=ours[1], title=title)
             print_plot_solution(vpath1, test_case, 'Shannon_POP', theirs[2],
                                 renyi=theirs[0], shannon=theirs[1],
                                 title='Padding scheme according to Shannon POP')
+
+
+def paper_cases(f_tests):
+    from comparison import Renyi_POP, Shannon_POP, new_visualizer
+    from shared_functions import print_plot_solution, file_parser_iterator, leakage_shannon, leakage_renyi
+    n_cases, it = file_parser_iterator(cwd / f_tests)
+
+    def solve(solver, sizes, freqs, c):
+        P_Y_given_X = solver(sizes, freqs, c)
+        shannon = leakage_shannon(P_Y_given_X, freqs)
+        renyi = leakage_renyi(P_Y_given_X, freqs)
+        return renyi, shannon, P_Y_given_X
+
+    vpath1 = new_visualizer(title=f_tests)
+    for test_case in it:
+        tc, n, c, sizes, freqs = test_case
+        ours = solve(Renyi_POP, sizes, freqs, c)
+        theirs = solve(Shannon_POP, sizes, freqs, c)
+        print(
+            f'Case #{tc:3d}: ({n:3d} objects)'
+            f' delta-renyi={ours[0]-theirs[0]:.5f} delta-shannon={ours[1]-theirs[1]:.5f}'
+        )
+        print_plot_solution(vpath1, test_case, 'Renyi_POP+', ours[2],
+                            renyi=ours[0], shannon=ours[1],
+                            title='Padding scheme according to Renyi POP+')
+        print_plot_solution(vpath1, test_case, 'Shannon_POP', theirs[2],
+                            renyi=theirs[0], shannon=theirs[1],
+                            title='Padding scheme according to Shannon POP')
+        print_plot_solution(vpath1, test_case, 'Renyi_POP+', ours[2],
+                            renyi=ours[0], shannon=ours[1], tight=True,
+                            title='')
+        print_plot_solution(vpath1, test_case, 'Shannon_POP', theirs[2],
+                            renyi=theirs[0], shannon=theirs[1], tight=True,
+                            title='')
 
 
 def generate_all():
@@ -67,7 +103,9 @@ def main():
     # generate_all()
     # test1()
     # test2()
-    cases_1919_and_3384()
+    # cases_1919_and_3384()
+    paper_cases('paper-cases/representation.txt')
+    # paper_cases('paper-cases/why-renyi.txt')
     pass
 
 

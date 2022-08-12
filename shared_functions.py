@@ -141,32 +141,45 @@ def plot_solution(
     save: Optional[Path] = None,
     renyi=None,
     shannon=None,
+    tight=False,
 ):
     S_X = np.array(sizes)
     P_X = np.array(freqs)
     # P_Y = np.matmul(P_X, P_Y_given_X) # This shows the sum
     P_Y = np.max(P_X[:, None] * P_Y_given_X, axis=0)  # This shows the max
     n = len(P_X)
+
+    prev = plt.rcParams['font.size']
+    if tight:
+        plt.rcParams.update({'font.size': 20})
+
     _ax = ax
     ax = plt.gca() if ax is None else ax
 
-    ax.plot([0, max(S_X) * 1.25], [1, 1], color='black', alpha=0.5)
-    ax.plot([0, max(S_X) * 1.25], [-1, -1], color='black', alpha=0.5)
+    min_X = min(S_X)
+    max_X = max(S_X)
+    if not tight:
+        if renyi is None:
+            renyi = leakage_renyi(P_Y_given_X, freqs)
+        if shannon is None:
+            shannon = leakage_shannon(P_Y_given_X, freqs)
+        ax.text(x=max(S_X) * 1.1, y=0.5, s=f'Rényi: {renyi:.4f}')
+        ax.text(x=max(S_X) * 1.1, y=-0.5, s=f'Shannon: {shannon:.4f}')
+        max_X *= 1.2
+    d_X = (max_X - min_X) * 0.12
+    min_X -= d_X
+    max_X += d_X
+    ax.set_xlim([min_X, max_X])
+
+    ax.plot([0, max_X], [1, 1], color='black', alpha=0.5)
+    ax.plot([0, max_X], [-1, -1], color='black', alpha=0.5)
     ax.scatter(S_X, [+1] * n, color='black', alpha=0.5)
     ax.scatter(S_X, [-1] * n, color='black', alpha=0.5)
-    width = 5
+    width = max(2, min(4, 5 / d_X))
     ax.bar(S_X, -P_Y / P_Y.max() * 0.45, color='tab:red', bottom=-1,
            width=width, alpha=0.8)
     ax.bar(S_X, P_X / P_X.max() * 0.45, color='tab:blue', bottom=1, width=width,
            alpha=0.8)
-
-    if renyi is None:
-        renyi = leakage_renyi(P_Y_given_X, freqs)
-    if shannon is None:
-        shannon = leakage_shannon(P_Y_given_X, freqs)
-    ax.text(x=max(S_X) * 1.1, y=0.5, s=f'Rényi: {renyi:.4f}')
-    ax.text(x=max(S_X) * 1.1, y=-0.5, s=f'Shannon: {shannon:.4f}')
-    ax.set_xlim([-max(S_X) * 0.1, max(S_X) * 1.5])
     for i in range(n):
         for j in range(n):
             strength = P_Y_given_X[i, j]
@@ -178,12 +191,19 @@ def plot_solution(
                 ax.annotate("", xytext=(S_X[i], 1),
                             xy=((S_X[i] + S_X[j]) / 2, 0),
                             arrowprops=arrowprops)
-    ax.set_ylabel('Padded' + ' ' * 39 + 'Original')
+    if tight:
+        ax.set_ylabel('Padded' + ' ' * 10 + 'Original')
+    else:
+        ax.set_ylabel('Padded' + ' ' * 39 + 'Original')
     ax.set_xlabel('Object size')
     ax.set_ylim([-1.5, 1.5])
     ax.tick_params(left=False, right=False, labelleft=False, labelright=False)
     if title is not None:
         ax.set_title(title)
+
+    # if tight:
+    #     for label in (ax.get_xticklabels() + ax.get_yticklabels()):
+    #         label.set_fontsize(22)
     if save:
         with TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir) / save.name
@@ -192,6 +212,7 @@ def plot_solution(
             tmp.replace(save)
     elif _ax is None:
         plt.show()
+    plt.rcParams.update({'font.size': prev})
     return
 
 
@@ -203,6 +224,7 @@ def print_plot_solution(
     title: Optional[str] = None,
     renyi=None,
     shannon=None,
+    tight=False,
 ):
     tc, n, c, sizes, freqs = test_case
     if renyi is None:
@@ -211,8 +233,10 @@ def print_plot_solution(
         shannon = leakage_shannon(P_Y_given_X, freqs)
     if title is None:
         title = f'{name}. Case #{tc:3d} ({n:3d} objects)'
-    plot_solution(P_Y_given_X, sizes, freqs, title=title, save=vpath.png())
+    plot_solution(P_Y_given_X, sizes, freqs, title=title, save=vpath.png(),
+                  tight=tight)
     vpath.print(f'Case #{tc:3d} ({n:3d} objects)')
+    vpath.print(f'c: {c}')
     vpath.print(f'Sizes: {sizes}')
     vpath.print(f'Freqs: {freqs}')
     vpath.print(f'Renyi: {renyi}')
