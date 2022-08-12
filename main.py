@@ -24,7 +24,7 @@ def test2():
     run([*cmp_args, 'Renyi_POP', 'Shannon_POP', 'samples/medium-200.txt'])
 
 
-def case_3384():
+def cases_1919_and_3384():
     from comparison import Renyi_POP, Shannon_POP, new_visualizer
     from shared_functions import print_plot_solution, file_parser_iterator, leakage_shannon, leakage_renyi
     f_tests = 'samples/xsmall-20000.txt'
@@ -39,10 +39,8 @@ def case_3384():
     vpath1 = new_visualizer(title=f_tests)
     for test_case in it:
         tc, n, c, sizes, freqs = test_case
-        if tc < 3384:
+        if n != 6:
             continue
-        if tc > 3384:
-            break
         ours = solve(Renyi_POP, sizes, freqs, c)
         theirs = solve(Shannon_POP, sizes, freqs, c)
 
@@ -69,7 +67,7 @@ def main():
     # generate_all()
     # test1()
     # test2()
-    case_3384()
+    cases_1919_and_3384()
     pass
 
 

@@ -144,7 +144,8 @@ def plot_solution(
 ):
     S_X = np.array(sizes)
     P_X = np.array(freqs)
-    P_Y = np.matmul(P_X, P_Y_given_X)
+    # P_Y = np.matmul(P_X, P_Y_given_X) # This shows the sum
+    P_Y = np.max(P_X[:, None] * P_Y_given_X, axis=0)  # This shows the max
     n = len(P_X)
     _ax = ax
     ax = plt.gca() if ax is None else ax
@@ -180,12 +181,13 @@ def plot_solution(
     ax.set_ylabel('Padded' + ' ' * 39 + 'Original')
     ax.set_xlabel('Object size')
     ax.set_ylim([-1.5, 1.5])
+    ax.tick_params(left=False, right=False, labelleft=False, labelright=False)
     if title is not None:
         ax.set_title(title)
     if save:
         with TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir) / save.name
-            plt.savefig(tmp)
+            plt.savefig(tmp, bbox_inches='tight')
             plt.close()
             tmp.replace(save)
     elif _ax is None:
