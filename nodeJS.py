@@ -141,6 +141,13 @@ class CS_Matrix:
         min_j, max_j = bounds_Y_given_X(S_X, S_Y, c)
         return cls(min_j, max_j), S_Y
 
+    def check(self):
+        X, Y = self.dok.nonzero()
+        for i, j in zip(X, Y):
+            assert self.min_j[i] <= j <= self.max_j[i], (self.min_j[i], j,
+                                                         self.max_j[i])
+        return
+
 
 def bounds_Y_given_X(S_X: IntArray, S_Y: IntArray, c: float):
     '''
@@ -195,13 +202,14 @@ def PRP_Renyi_only(M: CS_Matrix, P_X: FloatArray):
 
     P_XY = M.new()
     for j in tqdm(range(m - 1, -1, -1)):
-        ii = max_i[j]
-        while ii > 0 and min_j[ii] == j:
-            ii -= 1
-        greedy = max(B_X[ii:max_i[j] + 1])
+        mid_i = max_i[j]
+        while mid_i >= 0 and min_j[mid_i] == j:
+            mid_i -= 1
+        mid_i += 1
+        greedy = max(B_X[mid_i:max_i[j] + 1])
         if greedy == 0:
             continue
-        for i in range(min_i[j], max_i[j] + 1):
+        for i in range(max_i[j], min_i[j] - 1, -1):
             P_XY[i, j] = min(greedy, B_X[i])
             B_X[i] -= P_XY[i, j]
 
@@ -491,7 +499,7 @@ the_solvers = {
     'POP_Shannon_only': (POP_Shannon_only, None),
     'PRP_Renyi_Bandwidth': (PRP_Renyi_Bandwidth, 'PRP_Renyi_only'),
     'POP_Renyi_Bandwidth': (POP_Renyi_Bandwidth, 'POP_Renyi_only'),
-    'POP_Renyi_Shannon': (POP_Renyi_Shannon, 'POP_Renyi_only'),
+    #'POP_Renyi_Shannon': (POP_Renyi_Shannon, 'POP_Renyi_only'),
 }
 # Make sure the order matches dependencies
 assert list(the_solvers.values()) == sorted(the_solvers.values(),
@@ -519,6 +527,7 @@ def measure(solver, S_X: IntArray, P_X: FloatArray, c: float, **kwargs):
 
     print('Verifying solution...')
     assert np.allclose(P_Y_given_X.sum(axis=1), 1)
+    P_Y_given_X.check()
 
     print('Computing join matrix...')
     P_X = np.array(P_X)
@@ -641,12 +650,16 @@ def main(S_X: IntArray, P_X: FloatArray, solver_name='all'):
 
 def cases_of_interest():
 
+    np.random.seed(0)
+
     def generate(n):
         # http://www.eecs.harvard.edu/~michaelm/NEWWORK/postscripts/filesize.pdf
         # They criticize lognormal, but it's an approximation.
         # Search for "change [12]" in the PDF.
         S_X = np.power(2, np.random.normal(15, 3, size=n))
         S_X = 1 + np.array(S_X, dtype=int)
+        # Promote some repetitions
+        S_X = np.random.choice(S_X, size=n, replace=True)
         S_X.sort()
         # I will assume a similar behavior for the probabilities.
         P_X = np.power(2, np.random.normal(15, 3, size=n))
@@ -663,7 +676,6 @@ def cases_of_interest():
             poss = [range(M.min_j[i], M.max_j[i] + 1) for i in range(n)]
             Y_given_X = min(product(*poss), key=lambda f: function(f, P_X))
             Y_given_X = np.array(Y_given_X, dtype=int)
-            print(Y_given_X)
             P_Y_given_X = M.new()
             P_Y_given_X[np.arange(n), Y_given_X] = 1
             return P_Y_given_X, locals()
@@ -691,23 +703,35 @@ def cases_of_interest():
     }
     c = 1.1
     for _ in range(500):
-        S_X, P_X = generate(6)
+        S_X, P_X = generate(10)
+        test_bounds(S_X, c)
+
         measurements = {
-            name: measure(solver, S_X, P_X, c)[0]
+            name: print('-' * 30, name, c, sep='\n') or
+            measure(solver, S_X, P_X, c)[0]
             for name, (solver, _) in solvers.items()
         }
         all_leq = lambda a, b: np.all((a <= b) | np.isclose(a, b))
 
         checks = [
-            # Fundamental renyi-shannon checks
+            # POP bruteforce checks
             np.allclose(
                 measurements['POP_Renyi_only']['renyi'],
                 measurements['POP_BF_Renyi_Shannon']['renyi'],
             ),
+            # np.allclose(
+            #     measurements['POP_Renyi_Shannon']['shannon'],
+            #     measurements['POP_BF_Renyi_Shannon']['shannon'],
+            # ),
             np.allclose(
                 measurements['POP_Shannon_only']['renyi'],
                 measurements['POP_BF_Shannon_Renyi']['renyi'],
             ),
+            np.allclose(
+                measurements['POP_Shannon_only']['shannon'],
+                measurements['POP_BF_Shannon_Renyi']['shannon'],
+            ),
+            # Fundamental renyi-shannon checks
             all_leq(
                 measurements['PRP_Renyi_only']['renyi'],
                 measurements['POP_Renyi_only']['renyi'],
@@ -727,10 +751,6 @@ def cases_of_interest():
             ),
             np.allclose(
                 measurements['POP_Renyi_Bandwidth']['renyi'],
-                measurements['POP_Renyi_only']['renyi'],
-            ),
-            np.allclose(
-                measurements['POP_Renyi_Shannon']['renyi'],
                 measurements['POP_Renyi_only']['renyi'],
             ),
             all_leq(
