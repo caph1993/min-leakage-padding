@@ -43,10 +43,12 @@ def file_parser_iterator(path: Union[str, Path, None]):
 class CS_Matrix:
     '''
     Constrained sparse matrix.
-    The matrix is restricred to [i, j] where j in [min_j[i]..max_j[i]]
+    It can only be non-zero at coordinates [i, j] where
+        min_j[i] <= j <= max_j[i]
     '''
 
     def __init__(self, min_j: IntArray, max_j: IntArray):
+        # Safety checks
         assert np.all(min_j <= max_j)
         assert np.all(np.diff(min_j) >= 0)
         assert np.all(np.diff(max_j) >= 0)
@@ -54,9 +56,9 @@ class CS_Matrix:
         m = max_j[-1] + 1
         assert min_j[0] <= 0 <= max_j[0]
         assert min_j[n - 1] <= m - 1 <= max_j[n - 1]
+
         self.shape = n, m
-        self.min_j = min_j
-        self.max_j = max_j
+        self.min_j, self.max_j = min_j, max_j
         self.min_i, self.max_i = self.inverse_bounds()
         self.dok = dok_array((n, m))
 
@@ -81,6 +83,7 @@ class CS_Matrix:
         return min_i, max_i
 
     def new(self, dok=None):
+        'copy of self with new data (zeros if None)'
         out = self.__new__(self.__class__)
         out.shape = self.shape
         out.min_j = self.min_j
@@ -482,6 +485,19 @@ def nodeJS():
     return S_X, P_X
 
 
+the_solvers = {
+    'PRP_Renyi_only': (PRP_Renyi_only, None),
+    'POP_Renyi_only': (POP_Renyi_only, None),
+    'POP_Shannon_only': (POP_Shannon_only, None),
+    'PRP_Renyi_Bandwidth': (PRP_Renyi_Bandwidth, 'PRP_Renyi_only'),
+    'POP_Renyi_Bandwidth': (POP_Renyi_Bandwidth, 'POP_Renyi_only'),
+    'POP_Renyi_Shannon': (POP_Renyi_Shannon, 'POP_Renyi_only'),
+}
+# Make sure the order matches dependencies
+assert list(the_solvers.values()) == sorted(the_solvers.values(),
+                                            key=lambda x: x[1] != None)
+
+
 def measure(solver, S_X: IntArray, P_X: FloatArray, c: float, **kwargs):
     assert len(S_X) == len(P_X) and c >= 1
     assert np.all(S_X >= 0) and np.all(S_X[:-1] <= S_X[1:])
@@ -493,11 +509,11 @@ def measure(solver, S_X: IntArray, P_X: FloatArray, c: float, **kwargs):
 
     M, S_Y = CS_Matrix.from_sizes(S_X, c)
     P_Y_given_X: CS_Matrix
-    if c == 1.0:
-        P_Y_given_X = M.eye()
-        scope = {}
-    else:
-        P_Y_given_X, scope = solver(M, P_X, **kwargs)
+    # if c == 1.0:
+    #     P_Y_given_X = M.eye()
+    #     scope = {}
+    # else:
+    P_Y_given_X, scope = solver(M, P_X, **kwargs)
     end = time.time()
     elapsed = end - start
 
@@ -531,10 +547,6 @@ def measure(solver, S_X: IntArray, P_X: FloatArray, c: float, **kwargs):
         used_Bandwidth = (out_size - in_size).sum()
         min_Bandwidth = np.dot(P_X, S_X)
         return used_Bandwidth / min_Bandwidth
-
-    # from shared_functions import leakage_renyi, leakage_shannon
-    # print(leakage_renyi(P_Y_given_X.toarray(), P_X))
-    # print(leakage_shannon(P_Y_given_X.toarray(), P_X))
 
     print('Computing leakages...')
     renyi, shannon = leakages()
@@ -589,29 +601,27 @@ def sub_dataset(S_X: IntArray, P_X: FloatArray, n):
     return S_X, P_X
 
 
-def main(S_X: IntArray, P_X: FloatArray):
+def main(S_X: IntArray, P_X: FloatArray, solver_name='all'):
     assert np.all(np.diff(S_X) >= 0)
-    solvers = [
-        ('PRP_Renyi_only', PRP_Renyi_only, None),
-        ('POP_Renyi_only', POP_Renyi_only, None),
-        ('POP_Shannon_only', POP_Shannon_only, None),
-        ('PRP_Renyi_Bandwidth', PRP_Renyi_Bandwidth, 'PRP_Renyi_only'),
-        ('POP_Renyi_Bandwidth', POP_Renyi_Bandwidth, 'POP_Renyi_only'),
-        ('POP_Renyi_Shannon', POP_Renyi_Shannon, 'POP_Renyi_only'),
-    ]
-    # Independent first order:
-    solvers.sort(key=lambda x: x[2] != None)
 
-    with open(f'paper-cases/.{len(S_X)}.txt', 'a') as f:
+    # Filter
+    if solver_name != 'all':
+        solvers = {solver_name: the_solvers[solver_name]}
+    else:
+        solvers = {**the_solvers}
+
+    with open(f'paper-cases/.{solver_name}-{len(S_X)}.txt', 'a') as f:
         for c in [1, 1.05, 1.10, 1.15, 1.20, 1.25, 1.30]:
             Measurements = {}
             Outputs = {}
-            for name, solver, dependency in solvers:
+            for name, (solver, dependency) in solvers.items():
                 print('-' * 30)
                 print(name, c)
 
                 # Inject pre-computed outputs:
-                kwargs = {'pre': Outputs[dependency]} if dependency else {}
+                kwargs = {'pre': Outputs.get(dependency)}
+                if kwargs['pre'] is None:
+                    kwargs = {}
                 # Run and measure
                 measurements, output = measure(solver, S_X, P_X, c, **kwargs)
                 # Fix time
@@ -629,7 +639,128 @@ def main(S_X: IntArray, P_X: FloatArray):
     return
 
 
+def cases_of_interest():
+
+    def generate(n):
+        # http://www.eecs.harvard.edu/~michaelm/NEWWORK/postscripts/filesize.pdf
+        # They criticize lognormal, but it's an approximation.
+        # Search for "change [12]" in the PDF.
+        S_X = np.power(2, np.random.normal(15, 3, size=n))
+        S_X = 1 + np.array(S_X, dtype=int)
+        S_X.sort()
+        # I will assume a similar behavior for the probabilities.
+        P_X = np.power(2, np.random.normal(15, 3, size=n))
+        P_X /= P_X.sum()
+        return S_X, P_X
+
+    from itertools import product
+
+    def POP_bruteforce(function):
+
+        def minimizer(M: CS_Matrix, P_X: FloatArray):
+            'Can not handle more than 10'
+            n, m = M.shape
+            poss = [range(M.min_j[i], M.max_j[i] + 1) for i in range(n)]
+            Y_given_X = min(product(*poss), key=lambda f: function(f, P_X))
+            Y_given_X = np.array(Y_given_X, dtype=int)
+            print(Y_given_X)
+            P_Y_given_X = M.new()
+            P_Y_given_X[np.arange(n), Y_given_X] = 1
+            return P_Y_given_X, locals()
+
+        return minimizer
+
+    plogp = lambda t: t * np.log2(t)
+
+    def renyi_shannon(f, P_X):
+        p = {}
+        for x, y in enumerate(f):
+            p[y] = p.get(y, [])
+            p[y].append(P_X[x])
+        renyi = sum(max(l) for l in p.values())
+        shannon = -sum(plogp(sum(l)) for l in p.values())
+        return renyi, shannon
+
+    def shannon_renyi(f, P_X):
+        return tuple(reversed(renyi_shannon(f, P_X)))
+
+    solvers = {
+        **the_solvers,
+        'POP_BF_Renyi_Shannon': (POP_bruteforce(renyi_shannon), None),
+        'POP_BF_Shannon_Renyi': (POP_bruteforce(shannon_renyi), None),
+    }
+    c = 1.1
+    for _ in range(500):
+        S_X, P_X = generate(6)
+        measurements = {
+            name: measure(solver, S_X, P_X, c)[0]
+            for name, (solver, _) in solvers.items()
+        }
+        all_leq = lambda a, b: np.all((a <= b) | np.isclose(a, b))
+
+        checks = [
+            # Fundamental renyi-shannon checks
+            np.allclose(
+                measurements['POP_Renyi_only']['renyi'],
+                measurements['POP_BF_Renyi_Shannon']['renyi'],
+            ),
+            np.allclose(
+                measurements['POP_Shannon_only']['renyi'],
+                measurements['POP_BF_Shannon_Renyi']['renyi'],
+            ),
+            all_leq(
+                measurements['PRP_Renyi_only']['renyi'],
+                measurements['POP_Renyi_only']['renyi'],
+            ),
+            all_leq(
+                measurements['POP_Renyi_only']['renyi'],
+                measurements['POP_Shannon_only']['renyi'],
+            ),
+            all_leq(
+                measurements['POP_Shannon_only']['shannon'],
+                measurements['POP_Renyi_only']['shannon'],
+            ),
+            # Second minimization checks
+            np.allclose(
+                measurements['PRP_Renyi_Bandwidth']['renyi'],
+                measurements['PRP_Renyi_only']['renyi'],
+            ),
+            np.allclose(
+                measurements['POP_Renyi_Bandwidth']['renyi'],
+                measurements['POP_Renyi_only']['renyi'],
+            ),
+            np.allclose(
+                measurements['POP_Renyi_Shannon']['renyi'],
+                measurements['POP_Renyi_only']['renyi'],
+            ),
+            all_leq(
+                measurements['PRP_Renyi_Bandwidth']['bandwidth'],
+                measurements['PRP_Renyi_only']['bandwidth'],
+            ),
+            all_leq(
+                measurements['POP_Renyi_Bandwidth']['bandwidth'],
+                measurements['POP_Renyi_only']['bandwidth'],
+            ),
+        ]
+        if not all(checks):
+            print(S_X, P_X, c)
+            from pprint import pprint
+            pprint(measurements)
+            assert all(checks), checks
+    return
+
+
+def cli():
+    from argparse import ArgumentParser
+    parser = ArgumentParser()
+    parser.add_argument('--solver', type=str, default='all')
+    args = parser.parse_args()
+    main(*nodeJS(), solver_name=args.solver)
+    #main(*sub_dataset(*nodeJS(), 1000))
+
+
 if __name__ == '__main__':
     #main(*nodeJS())
-    main(*sub_dataset(*nodeJS(), 1000))
     #inspect_data()
+    #cli()
+    cases_of_interest()
