@@ -652,19 +652,33 @@ def cases_of_interest():
 
     np.random.seed(0)
 
+    # def generate(n):
+    #     # http://www.eecs.harvard.edu/~michaelm/NEWWORK/postscripts/filesize.pdf
+    #     # They criticize lognormal, but it's an approximation.
+    #     # Search for "change [12]" in the PDF.
+    #     S_X = np.power(2, np.random.normal(15, 3, size=n))
+    #     S_X = 1 + np.array(S_X, dtype=int)
+    #     # Promote some repetitions
+    #     S_X = np.random.choice(S_X, size=n, replace=True)
+    #     S_X.sort()
+    #     # I will assume a similar behavior for the probabilities.
+    #     P_X = np.power(2, np.random.normal(15, 3, size=n))
+    #     P_X /= P_X.sum()
+    #     c = 1.1
+    #     return S_X, P_X, c
+
     def generate(n):
-        # http://www.eecs.harvard.edu/~michaelm/NEWWORK/postscripts/filesize.pdf
-        # They criticize lognormal, but it's an approximation.
-        # Search for "change [12]" in the PDF.
-        S_X = np.power(2, np.random.normal(15, 3, size=n))
-        S_X = 1 + np.array(S_X, dtype=int)
-        # Promote some repetitions
-        S_X = np.random.choice(S_X, size=n, replace=True)
+        n_objects = 10
+        object_size = 100
+        n = max(*(np.random.randint(1, n_objects) for _ in range(3)))
+        S_X = np.random.choice(range(1, object_size + 1), n, replace=False)
         S_X.sort()
-        # I will assume a similar behavior for the probabilities.
-        P_X = np.power(2, np.random.normal(15, 3, size=n))
+        c = (np.random.choice(S_X) / np.random.choice(S_X))
+        c = max(c, 1 / c)
+        c = round(c + 0.01 * np.random.random(), 2)
+        P_X = np.random.random(n)
         P_X /= P_X.sum()
-        return S_X, P_X
+        return S_X, P_X, c
 
     from itertools import product
 
@@ -701,13 +715,12 @@ def cases_of_interest():
         'POP_BF_Renyi_Shannon': (POP_bruteforce(renyi_shannon), None),
         'POP_BF_Shannon_Renyi': (POP_bruteforce(shannon_renyi), None),
     }
-    c = 1.1
     for _ in range(500):
-        S_X, P_X = generate(10)
+        S_X, P_X, c = generate(10)
         test_bounds(S_X, c)
 
         measurements = {
-            name: print('-' * 30, name, c, sep='\n') or
+            name: print('-' * 30, f'{name} {c}', sep='\n') or
             measure(solver, S_X, P_X, c)[0]
             for name, (solver, _) in solvers.items()
         }
@@ -767,6 +780,29 @@ def cases_of_interest():
             from pprint import pprint
             pprint(measurements)
             assert all(checks), checks
+
+        interesting = [
+            not np.allclose(
+                measurements['PRP_Renyi_only']['renyi'],
+                measurements['POP_Renyi_only']['renyi'],
+            ),
+            # not np.allclose(
+            #     measurements['POP_Renyi_only']['shannon'],
+            #     measurements['POP_Renyi_Shannon']['shannon'],
+            # ),
+            not np.allclose(
+                measurements['POP_Renyi_only']['bandwidth'],
+                measurements['POP_Renyi_Bandwidth']['bandwidth'],
+            ),
+            not np.allclose(
+                measurements['POP_Renyi_only']['shannon'],
+                measurements['POP_Shannon_only']['shannon'],
+            ),
+        ]
+        if all(interesting):
+            print('BINGO!')
+            print(S_X, P_X, c, interesting)
+            sys.exit(1)
     return
 
 
