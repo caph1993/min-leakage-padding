@@ -1,14 +1,18 @@
 """
-Sparse reimplementation of all the algorithms.
+Reimplementation of all the algorithms using n x m sparse matrices.
 
-To run from command line, just python this_file.py COMMAND
+To run from command line, just
+
+    python this_file.py COMMAND
+
 COMMAND should be one of:
         large_all:                 run all algorithms      in nodeJS dataset
         medium_all:                run all algorithms      in subset of nodeJS dataset
         large_POP_Renyi_Bandwidth: run POP_Renyi_Bandwidth in nodeJS dataset
         large_POP_Renyi_only:      run POP_Renyi_only      in nodeJS dataset
         medium_POP_Shannon_only:   run POP_Shannon_only    in subset of nodeJS dataset
-        etc.
+        
+        etc. (see the dictionary called "the_solvers")
 """
 from functools import lru_cache, wraps
 from pathlib import Path
@@ -285,7 +289,7 @@ def POP_Renyi_only(M: CS_Matrix, P_X: FloatArray):
             ANS = min(ANS, ans)
         return ANS
 
-    with tqdm(total=M.total_entries()) as progress:
+    with tqdm(total=(m * m - m) // 2) as progress:
         f(0, n)
         sys.stderr.flush()
 
@@ -385,7 +389,7 @@ def POP_Renyi_Shannon(M: CS_Matrix, P_X: FloatArray, pre=None):
             ANS = min(ANS, ans)
         return ANS
 
-    with tqdm(total=n * M.total_entries()) as progress:
+    with tqdm(total=(m * m - m) // 2) as progress:
         f(0, m)
         sys.stderr.flush()
 
@@ -620,10 +624,12 @@ def inspect_data():
 
 
 def sub_dataset(S_X: IntArray, P_X: FloatArray, n):
+    # Filter top n
     idx = np.argsort(P_X)[-n:]
     S_X = S_X[idx]
     P_X = P_X[idx]
     P_X /= np.sum(P_X)
+    # Sort by size
     idx = np.argsort(S_X)
     S_X = S_X[idx]
     P_X = P_X[idx]
@@ -650,7 +656,7 @@ def main(S_X: IntArray, P_X: FloatArray, solver_name='all'):
                 # Inject pre-computed outputs:
                 kwargs = {'pre': Outputs.get(dependency)}
                 if kwargs['pre'] is None:
-                    kwargs = {}
+                    kwargs.pop('pre')
                 # Run and measure
                 measurements, output = measure(solver, S_X, P_X, c, **kwargs)
                 # Fix time
@@ -835,7 +841,7 @@ def cli():
     elif command == 'eye_tests':
         eye_tests()
     else:
-        print()
+        print(__doc__)
         raise NotImplementedError(command)
 
 
