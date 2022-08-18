@@ -10,7 +10,7 @@ COMMAND should be one of:
         medium_POP_Shannon_only:   run POP_Shannon_only    in subset of nodeJS dataset
         etc.
 """
-from functools import lru_cache
+from functools import lru_cache, wraps
 from pathlib import Path
 import sys
 import time
@@ -18,7 +18,7 @@ from typing import List, Optional, Sequence, Union
 import numpy as np
 from typing import Tuple
 from scipy.sparse import dok_array
-from tqdm import tqdm
+from tqdm import tqdm as _tqdm
 
 IntArray = np.ndarray  # Just for reference
 FloatArray = np.ndarray  # Just for reference
@@ -26,6 +26,13 @@ FloatArray = np.ndarray  # Just for reference
 cwd = Path(__file__).parent if __file__ else Path.cwd()
 
 sys.setrecursionlimit(10**9)
+
+
+@wraps(_tqdm)
+def tqdm(*args, **kwargs):
+    kwargs['ascii'] = True
+    return _tqdm(*args, **kwargs)
+
 
 # Sparse matrix
 
@@ -278,7 +285,7 @@ def POP_Renyi_only(M: CS_Matrix, P_X: FloatArray):
             ANS = min(ANS, ans)
         return ANS
 
-    with tqdm(total=M.total_entries(), ascii=True) as progress:
+    with tqdm(total=M.total_entries()) as progress:
         f(0, n)
         sys.stderr.flush()
 
@@ -356,7 +363,8 @@ def POP_Renyi_Shannon(M: CS_Matrix, P_X: FloatArray, pre=None):
         if LO == HI:
             return (0, -1, LO, HI)
         elems = [
-            i for i in range(LO, HI) if LO <= poss_j[i][0] <= poss_j[i][-1] < HI
+            i for i in range(min_i[LO], max_i[HI - 1] + 1)
+            if LO <= poss_j[i][0] <= poss_j[i][-1] < HI
         ]
         columns = sorted(set([j for i in elems for j in poss_j[i]]))
         if not columns:
@@ -377,7 +385,7 @@ def POP_Renyi_Shannon(M: CS_Matrix, P_X: FloatArray, pre=None):
             ANS = min(ANS, ans)
         return ANS
 
-    with tqdm(total=n * M.total_entries(), ascii=True) as progress:
+    with tqdm(total=n * M.total_entries()) as progress:
         f(0, m)
         sys.stderr.flush()
 
@@ -390,7 +398,8 @@ def POP_Renyi_Shannon(M: CS_Matrix, P_X: FloatArray, pre=None):
         if j == -1:
             continue
         elems = [
-            i for i in range(LO, HI) if LO <= poss_j[i][0] <= poss_j[i][-1] < HI
+            i for i in range(min_i[LO], max_i[HI - 1] + 1)
+            if LO <= poss_j[i][0] <= poss_j[i][-1] < HI
         ]
         captured = [i for i in elems if poss_j[i][0] <= j <= poss_j[i][-1]]
         Y_given_X[captured] = j
@@ -819,8 +828,10 @@ def cli():
         assert command == 'all' or command in the_solvers, command
         main(*sub_dataset(*nodeJS(), 300), solver_name=command)
     elif command == 'correctness_tests':
-        correctness_tests(n_cases=50, n_objects=100, also_brute_force=False)
-        correctness_tests(n_cases=500, n_objects=10, also_brute_force=True)
+        # 250 tests of around and at most 100 objects each.
+        correctness_tests(n_cases=250, n_objects=100, also_brute_force=False)
+        # 250 tests against bruteforce of around and at most 10 objects each.
+        correctness_tests(n_cases=250, n_objects=10, also_brute_force=True)
     elif command == 'eye_tests':
         eye_tests()
     else:
