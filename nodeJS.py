@@ -336,7 +336,7 @@ def POP_Renyi_Shannon(M: CS_Matrix, P_X: FloatArray, pre=None):
     min_i, max_i = M.min_i, M.max_i
     P_XY_max = (P_Y_given_X * P_X[:, None]).max(axis=0)
 
-    poss = [  # Possibilities of j given i
+    poss_j = [  # Possibilities of j given i
         [j
          for j in range(min_j[i], max_j[i] + 1)
          if P_X[i] <= P_XY_max[j]]
@@ -347,7 +347,7 @@ def POP_Renyi_Shannon(M: CS_Matrix, P_X: FloatArray, pre=None):
     def f(LO: int, HI: int) -> Tuple[float, int, int, int]:
         '''
         Optimal assignment of the elements i such that
-            - poss[i] is a subset of [LO, HI)
+            - possibilities_Y_given_X[i] is a subset of [LO, HI)
             - (as a consequence, also) i in [LO, HI)
         Divide and conquer strategy:
             As many elements as possible are assigned to a single j,
@@ -364,16 +364,15 @@ def POP_Renyi_Shannon(M: CS_Matrix, P_X: FloatArray, pre=None):
         if LO == HI:
             return (0, -1, LO, HI)
         elems = [
-            i for i in range(min_i[LO], max_i[HI - 1])
-            if LO <= poss[i][0] <= poss[i][-1] < HI
+            i for i in range(LO, HI) if LO <= poss_j[i][0] <= poss_j[i][-1] < HI
         ]
-        columns = sorted(set([j for i in elems for j in poss[i]]))
+        columns = sorted(set([j for i in elems for j in poss_j[i]]))
         if not columns:
             return (0, -1, LO, HI)
         ANS = (float('inf'), -1, -1, -1)
         for j in columns:
             # Greedy capture: all elems are mapped to j
-            captured = [i for i in elems if poss[i][0] <= j <= poss[i][-1]]
+            captured = [i for i in elems if poss_j[i][0] <= j <= poss_j[i][-1]]
             assert captured
             s = np.sum(P_X[captured])
             mid_shannon = -s * np.log2(s)
@@ -387,7 +386,7 @@ def POP_Renyi_Shannon(M: CS_Matrix, P_X: FloatArray, pre=None):
         return ANS
 
     with tqdm(total=M.total_entries()) as progress:
-        f(0, m)
+        f(0, m - 1)
 
     # Channel reconstruction
     Y_given_X = np.array([-1] * n)
@@ -398,10 +397,9 @@ def POP_Renyi_Shannon(M: CS_Matrix, P_X: FloatArray, pre=None):
         if j == -1:
             continue
         elems = [
-            i for i in range(min_i[LO], max_i[HI - 1])
-            if LO <= poss[i][0] <= poss[i][-1] < HI
+            i for i in range(LO, HI) if LO <= poss_j[i][0] <= poss_j[i][-1] < HI
         ]
-        captured = [i for i in elems if poss[i][0] <= j <= poss[i][-1]]
+        captured = [i for i in elems if poss_j[i][0] <= j <= poss_j[i][-1]]
         Y_given_X[captured] = j
         if LO < lo:
             Q.append((LO, lo))
@@ -499,7 +497,7 @@ the_solvers = {
     'POP_Shannon_only': (POP_Shannon_only, None),
     'PRP_Renyi_Bandwidth': (PRP_Renyi_Bandwidth, 'PRP_Renyi_only'),
     'POP_Renyi_Bandwidth': (POP_Renyi_Bandwidth, 'POP_Renyi_only'),
-    #'POP_Renyi_Shannon': (POP_Renyi_Shannon, 'POP_Renyi_only'),
+    'POP_Renyi_Shannon': (POP_Renyi_Shannon, 'POP_Renyi_only'),
 }
 # Make sure the order matches dependencies
 assert list(the_solvers.values()) == sorted(the_solvers.values(),
@@ -650,7 +648,7 @@ def main(S_X: IntArray, P_X: FloatArray, solver_name='all'):
 
 def cases_of_interest():
 
-    np.random.seed(0)
+    #np.random.seed(0)
 
     # def generate(n):
     #     # http://www.eecs.harvard.edu/~michaelm/NEWWORK/postscripts/filesize.pdf
@@ -667,10 +665,9 @@ def cases_of_interest():
     #     c = 1.1
     #     return S_X, P_X, c
 
-    def generate(n):
-        n_objects = 10
+    def generate(max_n_objects):
         object_size = 100
-        n = max(*(np.random.randint(1, n_objects) for _ in range(3)))
+        n = max(*(np.random.randint(1, max_n_objects) for _ in range(3)))
         S_X = np.random.choice(range(1, object_size + 1), n, replace=False)
         S_X.sort()
         c = (np.random.choice(S_X) / np.random.choice(S_X))
@@ -687,8 +684,8 @@ def cases_of_interest():
         def minimizer(M: CS_Matrix, P_X: FloatArray):
             'Can not handle more than 10'
             n, m = M.shape
-            poss = [range(M.min_j[i], M.max_j[i] + 1) for i in range(n)]
-            Y_given_X = min(product(*poss), key=lambda f: function(f, P_X))
+            poss_j = [range(M.min_j[i], M.max_j[i] + 1) for i in range(n)]
+            Y_given_X = min(product(*poss_j), key=lambda f: function(f, P_X))
             Y_given_X = np.array(Y_given_X, dtype=int)
             P_Y_given_X = M.new()
             P_Y_given_X[np.arange(n), Y_given_X] = 1
@@ -716,7 +713,7 @@ def cases_of_interest():
         'POP_BF_Shannon_Renyi': (POP_bruteforce(shannon_renyi), None),
     }
     for _ in range(500):
-        S_X, P_X, c = generate(10)
+        S_X, P_X, c = generate(8)
         test_bounds(S_X, c)
 
         measurements = {
@@ -724,72 +721,55 @@ def cases_of_interest():
             measure(solver, S_X, P_X, c)[0]
             for name, (solver, _) in solvers.items()
         }
-        all_leq = lambda a, b: np.all((a <= b) | np.isclose(a, b))
 
         checks = [
-            # POP bruteforce checks
-            np.allclose(
-                measurements['POP_Renyi_only']['renyi'],
-                measurements['POP_BF_Renyi_Shannon']['renyi'],
-            ),
-            # np.allclose(
-            #     measurements['POP_Renyi_Shannon']['shannon'],
-            #     measurements['POP_BF_Renyi_Shannon']['shannon'],
-            # ),
-            np.allclose(
-                measurements['POP_Shannon_only']['renyi'],
-                measurements['POP_BF_Shannon_Renyi']['renyi'],
-            ),
-            np.allclose(
-                measurements['POP_Shannon_only']['shannon'],
-                measurements['POP_BF_Shannon_Renyi']['shannon'],
-            ),
-            # Fundamental renyi-shannon checks
-            all_leq(
-                measurements['PRP_Renyi_only']['renyi'],
-                measurements['POP_Renyi_only']['renyi'],
-            ),
-            all_leq(
-                measurements['POP_Renyi_only']['renyi'],
-                measurements['POP_Shannon_only']['renyi'],
-            ),
-            all_leq(
-                measurements['POP_Shannon_only']['shannon'],
-                measurements['POP_Renyi_only']['shannon'],
-            ),
-            # Second minimization checks
-            np.allclose(
-                measurements['PRP_Renyi_Bandwidth']['renyi'],
-                measurements['PRP_Renyi_only']['renyi'],
-            ),
-            np.allclose(
-                measurements['POP_Renyi_Bandwidth']['renyi'],
-                measurements['POP_Renyi_only']['renyi'],
-            ),
-            all_leq(
-                measurements['PRP_Renyi_Bandwidth']['bandwidth'],
-                measurements['PRP_Renyi_only']['bandwidth'],
-            ),
-            all_leq(
-                measurements['POP_Renyi_Bandwidth']['bandwidth'],
-                measurements['POP_Renyi_only']['bandwidth'],
-            ),
+            # PRP. renyi leakage and bandwidth
+            ('renyi', 'PRP_Renyi_only', '<=', 'POP_Renyi_only'),
+            ('renyi', 'PRP_Renyi_only', '==', 'PRP_Renyi_Bandwidth'),
+            ('bandwidth', 'PRP_Renyi_Bandwidth', '<=', 'PRP_Renyi_only'),
+            # POP. renyi leakage and bandwidth
+            ('renyi', 'POP_Renyi_only', '==', 'POP_BF_Renyi_Shannon'),
+            ('renyi', 'POP_Renyi_only', '==', 'POP_Renyi_Bandwidth'),
+            ('renyi', 'POP_Shannon_only', '>=', 'POP_Renyi_only'),
+            ('renyi', 'POP_Shannon_only', '==', 'POP_BF_Shannon_Renyi'),
+            ('bandwidth', 'POP_Renyi_Bandwidth', '<=', 'POP_Renyi_only'),
+            # POP. shannon leakage
+            ('shannon', 'POP_Renyi_Shannon', '>=', 'POP_BF_Renyi_Shannon'),
+            ('shannon', 'POP_Renyi_Shannon', '<=', 'POP_Renyi_only'),
+            ('shannon', 'POP_Shannon_only', '==', 'POP_BF_Shannon_Renyi'),
+            ('shannon', 'POP_Shannon_only', '<=', 'POP_Renyi_Shannon'),
         ]
-        if not all(checks):
-            print(S_X, P_X, c)
+
+        all_leq = lambda a, b: np.all((a <= b) | np.isclose(a, b))
+        failed = {}
+        for check in checks:
+            prop, first, op, second = check
+            assert op in ['==', '<=', '>=']
+            values = (measurements[first][prop], measurements[second][prop])
+            if op == '==' and not np.allclose(values[0], values[1]):
+                failed[check] = values
+            elif op == '<=' and not all_leq(values[0], values[1]):
+                failed[check] = values
+            elif op == '>=' and not all_leq(values[1], values[0]):
+                failed[check] = values
+        if failed:
             from pprint import pprint
             pprint(measurements)
-            assert all(checks), checks
+            print('=' * 30)
+            print('FAILURE:')
+            pprint(failed)
+            print(S_X, P_X, c)
+            sys.exit(1)
 
         interesting = [
             not np.allclose(
                 measurements['PRP_Renyi_only']['renyi'],
                 measurements['POP_Renyi_only']['renyi'],
             ),
-            # not np.allclose(
-            #     measurements['POP_Renyi_only']['shannon'],
-            #     measurements['POP_Renyi_Shannon']['shannon'],
-            # ),
+            not np.allclose(
+                measurements['POP_Renyi_only']['shannon'],
+                measurements['POP_Renyi_Shannon']['shannon'],
+            ),
             not np.allclose(
                 measurements['POP_Renyi_only']['bandwidth'],
                 measurements['POP_Renyi_Bandwidth']['bandwidth'],
