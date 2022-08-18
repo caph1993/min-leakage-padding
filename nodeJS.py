@@ -1,8 +1,16 @@
 """
-Sparse reimplementation of all the algorithms
+Sparse reimplementation of all the algorithms.
+
+To run from command line, just python this_file.py COMMAND
+COMMAND should be one of:
+        large_all:                 run all algorithms      in nodeJS dataset
+        medium_all:                run all algorithms      in subset of nodeJS dataset
+        large_POP_Renyi_Bandwidth: run POP_Renyi_Bandwidth in nodeJS dataset
+        large_POP_Renyi_only:      run POP_Renyi_only      in nodeJS dataset
+        medium_POP_Shannon_only:   run POP_Shannon_only    in subset of nodeJS dataset
+        etc.
 """
-from functools import lru_cache, wraps
-import itertools
+from functools import lru_cache
 from pathlib import Path
 import sys
 import time
@@ -15,27 +23,9 @@ from tqdm import tqdm
 IntArray = np.ndarray  # Just for reference
 FloatArray = np.ndarray  # Just for reference
 
+cwd = Path(__file__).parent if __file__ else Path.cwd()
+
 sys.setrecursionlimit(10**9)
-
-# Utils
-
-
-def file_parser_iterator(path: Union[str, Path, None]):
-    if path is None:
-        stdin = iter(x for l in sys.stdin for x in l.split())
-    else:
-        stdin = iter(open(path).read().split())
-    n_test_cases = int(next(stdin))
-
-    def _iterator():
-        for tc in range(1, 1 + n_test_cases):
-            n, c = int(next(stdin)), float(next(stdin))
-            sizes = [int(next(stdin)) for _ in range(n)]
-            freqs = [float(next(stdin)) for _ in range(n)]
-            yield tc, n, c, sizes, freqs
-
-    return n_test_cases, iter(_iterator())
-
 
 # Sparse matrix
 
@@ -95,10 +85,6 @@ class CS_Matrix:
             out.dok = dok
         return out
 
-    # def old_init(self, n: int, m: int):
-    #     self.shape = n, m
-    #     self.dok = dok_array((n, m))
-
     def __getitem__(self, slice):
         return self.dok[slice]
 
@@ -112,11 +98,6 @@ class CS_Matrix:
         assert other.shape in [(n, m), (n, 1), (1, m)]
         dok = self.dok.multiply(other).asformat('dok')
         return self.new(dok)
-
-    def eye(self):
-        out = self.new()
-        out[np.arange(self.shape[0]), out.min_j] = 1
-        return out
 
     def sum(self, axis=None):
         return self.dok.sum(axis=axis)
@@ -147,6 +128,17 @@ class CS_Matrix:
             assert self.min_j[i] <= j <= self.max_j[i], (self.min_j[i], j,
                                                          self.max_j[i])
         return
+
+    def eye(self):
+        out = self.new()
+        out[np.arange(self.shape[0]), out.min_j] = 1
+        return out
+
+    def allclose(self, other):
+        diff = self - other
+        X, Y = diff.dok.nonzero()
+        diff_arr = np.array([diff[x, y] for x, y in zip(X, Y)], dtype=float)
+        return np.allclose(diff_arr, 0)
 
 
 def bounds_Y_given_X(S_X: IntArray, S_Y: IntArray, c: float):
@@ -221,16 +213,16 @@ def PRP_Renyi_Bandwidth(M: CS_Matrix, P_X: FloatArray, pre=None):
     # Improve bandwidth
     n, m = M.shape
     P_Y_given_X, scope = pre or PRP_Renyi_only(M, P_X)
-    P_XY: CS_Matrix = scope['P_XY']
+    old_P_XY: CS_Matrix = scope['P_XY']
     min_j, max_j = M.min_j, M.max_j
     min_i, max_i = M.min_i, M.max_i
 
-    P_XY_max = P_XY.max(axis=0)
+    P_XY_max = old_P_XY.max(axis=0)
 
     # Find pinned coordinates
     argmax_i = {
         j: min_i[j] +
-        np.argmax([P_XY[i, j] for i in range(min_i[j], max_i[j] + 1)])
+        np.argmax([old_P_XY[i, j] for i in range(min_i[j], max_i[j] + 1)])
         for j in tqdm(range(m))
         if P_XY_max[j] > 0
     }
@@ -239,25 +231,24 @@ def PRP_Renyi_Bandwidth(M: CS_Matrix, P_X: FloatArray, pre=None):
         pinned[i].append(j)
 
     # Pin them
-    out_P_XY = M.new()
+    P_XY = M.new()
     for i in pinned:
         for j in pinned[i]:
-            out_P_XY[i, j] = P_XY[i, j]
+            assert old_P_XY[i, j] == P_XY_max[j]
+            P_XY[i, j] = old_P_XY[i, j]
 
     # Greedily assign the rest favoring the leftmost
     for i in tqdm(range(n)):
         budget = P_X[i] - sum(P_XY[i, j] for j in pinned[i])
         for j in range(min_j[i], max_j[i] + 1):
-            if np.allclose(budget, 0):
+            if np.allclose(budget, 0, atol=1e-15):
                 break
             if j in pinned[i]:
                 continue
             db = min(budget, P_XY_max[j])
-            out_P_XY[i, j] = db
+            P_XY[i, j] = db
             budget -= db
         assert np.allclose(budget, 0)
-
-    P_XY = out_P_XY
     P_Y_given_X = P_XY * (1 / P_X[:, None])
     return P_Y_given_X, locals()
 
@@ -287,8 +278,9 @@ def POP_Renyi_only(M: CS_Matrix, P_X: FloatArray):
             ANS = min(ANS, ans)
         return ANS
 
-    with tqdm(total=M.total_entries()) as progress:
+    with tqdm(total=M.total_entries(), ascii=True) as progress:
         f(0, n)
+        sys.stderr.flush()
 
     # Reconstruction
     Y_given_X = np.zeros(n, dtype=int)
@@ -314,13 +306,14 @@ def POP_Renyi_only(M: CS_Matrix, P_X: FloatArray):
 def POP_Renyi_Bandwidth(M: CS_Matrix, P_X: FloatArray, pre=None):
     P_Y_given_X, scope = pre or POP_Renyi_only(M, P_X)
     n, m = M.shape
+    min_j = M.min_j
     Y_given_X = scope['Y_given_X']
 
     P_XY_max = (P_Y_given_X * P_X[:, None]).max(axis=0)
 
     Y_given_X = np.array([
         next(
-            (j for j in range(i, Y_given_X[i]) if P_X[i] <= P_XY_max[j]),
+            (j for j in range(min_j[i], Y_given_X[i]) if P_X[i] <= P_XY_max[j]),
             Y_given_X[i],
         ) for i in tqdm(range(n))
     ])
@@ -348,7 +341,6 @@ def POP_Renyi_Shannon(M: CS_Matrix, P_X: FloatArray, pre=None):
         '''
         Optimal assignment of the elements i such that
             - possibilities_Y_given_X[i] is a subset of [LO, HI)
-            - (as a consequence, also) i in [LO, HI)
         Divide and conquer strategy:
             As many elements as possible are assigned to a single j,
             and for the remaining elements, recursion is used.
@@ -385,12 +377,13 @@ def POP_Renyi_Shannon(M: CS_Matrix, P_X: FloatArray, pre=None):
             ANS = min(ANS, ans)
         return ANS
 
-    with tqdm(total=M.total_entries()) as progress:
-        f(0, m - 1)
+    with tqdm(total=n * M.total_entries(), ascii=True) as progress:
+        f(0, m)
+        sys.stderr.flush()
 
     # Channel reconstruction
     Y_given_X = np.array([-1] * n)
-    Q: List[Tuple[int, int]] = [(0, n)]
+    Q: List[Tuple[int, int]] = [(0, m)]
     while Q:
         LO, HI = Q.pop()
         _, j, lo, hi = f(LO, HI)
@@ -465,7 +458,9 @@ def POP_Shannon_only(M: CS_Matrix, P_X: FloatArray):
 
 
 def nodeJS():
-    file = Path('paper-cases/npm.txt')
+    S_X: IntArray
+    P_X: FloatArray
+    file = cwd / 'paper-cases' / 'nodeJS.txt'
     if not file.exists():
         print('Creating dataset from original...')
         import pandas as pd
@@ -475,19 +470,18 @@ def nodeJS():
         )
         df.sort_values(by='visits', ascending=False, inplace=True)
         df.sort_values(by='size', inplace=True)
-        S_X: IntArray = df['size'].values  # type: ignore
-        P_X: FloatArray = (df['visits'] / df['visits'].sum()).values
+        S_X = df['size'].values  # type: ignore
+        P_X = (df['visits'] / df['visits'].sum()).values
         del df
-        c = 1.1
         with open(file, 'w') as f:
-            f.write(f'1\n{len(S_X)} {c}\n')
             f.write(f'{" ".join(map(str, S_X))}\n')
             f.write(f'{" ".join(map(str, P_X))}\n')
         print(f'Saved as {file}.')
         print('Avg Bandwidth:', np.dot(S_X, P_X))
-    _, _, _, sizes, freqs = next(file_parser_iterator(file)[1])
-    S_X = np.array(sizes)
-    P_X = np.array(freqs)
+
+    with open(file, 'r') as f:
+        S_X = np.array([int(x) for x in f.readline().split()])
+        P_X = np.array([float(x) for x in f.readline().split()])
     return S_X, P_X
 
 
@@ -504,6 +498,24 @@ assert list(the_solvers.values()) == sorted(the_solvers.values(),
                                             key=lambda x: x[1] != None)
 
 
+def eye_tests():
+    '''
+    When c=1, the optimal solution is the identity.
+    More precisely, the "rectangular" identity when n!=m.
+    '''
+    c = 1.0
+    S_X, P_X = nodeJS()
+    M, S_Y = CS_Matrix.from_sizes(S_X, c)
+    expected = M.eye()
+    for name, (solver, _) in the_solvers.items():
+        print(f'{name} c={c}')
+        P_Y_given_X, scope = solver(M, P_X)
+        print(f'checking output...')
+        assert expected.allclose(P_Y_given_X)
+        print(f'ok')
+    return
+
+
 def measure(solver, S_X: IntArray, P_X: FloatArray, c: float, **kwargs):
     assert len(S_X) == len(P_X) and c >= 1
     assert np.all(S_X >= 0) and np.all(S_X[:-1] <= S_X[1:])
@@ -515,16 +527,17 @@ def measure(solver, S_X: IntArray, P_X: FloatArray, c: float, **kwargs):
 
     M, S_Y = CS_Matrix.from_sizes(S_X, c)
     P_Y_given_X: CS_Matrix
-    # if c == 1.0:
-    #     P_Y_given_X = M.eye()
-    #     scope = {}
-    # else:
-    P_Y_given_X, scope = solver(M, P_X, **kwargs)
+    if c == 1.0:
+        P_Y_given_X = M.eye()
+        scope = {}
+    else:
+        P_Y_given_X, scope = solver(M, P_X, **kwargs)
     end = time.time()
     elapsed = end - start
 
     print('Verifying solution...')
-    assert np.allclose(P_Y_given_X.sum(axis=1), 1)
+    h_sum = P_Y_given_X.sum(axis=1)
+    assert np.allclose(h_sum, 1), (min(h_sum), max(h_sum))
     P_Y_given_X.check()
 
     print('Computing join matrix...')
@@ -551,9 +564,9 @@ def measure(solver, S_X: IntArray, P_X: FloatArray, c: float, **kwargs):
     def bandwidth_factor():
         in_size = P_XY * S_X[:, None]
         out_size = P_XY * S_Y[None, :]
-        used_Bandwidth = (out_size - in_size).sum()
-        min_Bandwidth = np.dot(P_X, S_X)
-        return used_Bandwidth / min_Bandwidth
+        used_bandwidth = (out_size - in_size).sum()
+        min_bandwidth = np.dot(P_X, S_X)
+        return used_bandwidth / min_bandwidth
 
     print('Computing leakages...')
     renyi, shannon = leakages()
@@ -577,7 +590,7 @@ def inspect_data():
     test_bounds(sub_dataset(S_X, P_X, 1000)[0], c)
     print('Test passed')
     print(len(S_X))
-    for c in [1, 1.05, 1.3]:
+    for c in [1, 1.05, 1.3, 3]:
         start = time.time()
         M, S_Y = CS_Matrix.from_sizes(S_X, c)
         end = time.time()
@@ -617,8 +630,8 @@ def main(S_X: IntArray, P_X: FloatArray, solver_name='all'):
     else:
         solvers = {**the_solvers}
 
-    with open(f'paper-cases/.{solver_name}-{len(S_X)}.txt', 'a') as f:
-        for c in [1, 1.05, 1.10, 1.15, 1.20, 1.25, 1.30]:
+    with open(cwd / 'paper-cases' / f'{solver_name}-{len(S_X)}.txt', 'a') as f:
+        for c in [1, 1.02, 1.04, 1.06, 1.08, 1.1]:
             Measurements = {}
             Outputs = {}
             for name, (solver, dependency) in solvers.items():
@@ -632,7 +645,7 @@ def main(S_X: IntArray, P_X: FloatArray, solver_name='all'):
                 # Run and measure
                 measurements, output = measure(solver, S_X, P_X, c, **kwargs)
                 # Fix time
-                if dependency:
+                if kwargs:
                     prev = Measurements[dependency]
                     measurements['elapsed'] += prev['elapsed']
 
@@ -646,7 +659,7 @@ def main(S_X: IntArray, P_X: FloatArray, solver_name='all'):
     return
 
 
-def cases_of_interest():
+def correctness_tests(n_cases=500, n_objects=10, also_brute_force=False):
 
     #np.random.seed(0)
 
@@ -666,7 +679,7 @@ def cases_of_interest():
     #     return S_X, P_X, c
 
     def generate(max_n_objects):
-        object_size = 100
+        object_size = max(100, 10 * max_n_objects)
         n = max(*(np.random.randint(1, max_n_objects) for _ in range(3)))
         S_X = np.random.choice(range(1, object_size + 1), n, replace=False)
         S_X.sort()
@@ -707,17 +720,20 @@ def cases_of_interest():
     def shannon_renyi(f, P_X):
         return tuple(reversed(renyi_shannon(f, P_X)))
 
-    solvers = {
-        **the_solvers,
-        'POP_BF_Renyi_Shannon': (POP_bruteforce(renyi_shannon), None),
-        'POP_BF_Shannon_Renyi': (POP_bruteforce(shannon_renyi), None),
-    }
-    for _ in range(500):
-        S_X, P_X, c = generate(8)
+    if also_brute_force:
+        solvers = {
+            **the_solvers,
+            'POP_BF_Renyi_Shannon': (POP_bruteforce(renyi_shannon), None),
+            'POP_BF_Shannon_Renyi': (POP_bruteforce(shannon_renyi), None),
+        }
+    else:
+        solvers = {**the_solvers}
+    for _ in range(n_cases):
+        S_X, P_X, c = generate(n_objects)
         test_bounds(S_X, c)
 
         measurements = {
-            name: print('-' * 30, f'{name} {c}', sep='\n') or
+            name: print('-' * 30, f'{name} {c} {len(S_X)}', sep='\n') or
             measure(solver, S_X, P_X, c)[0]
             for name, (solver, _) in solvers.items()
         }
@@ -744,6 +760,8 @@ def cases_of_interest():
         failed = {}
         for check in checks:
             prop, first, op, second = check
+            if first not in measurements or second not in measurements:
+                continue  # Skip BF checks.
             assert op in ['==', '<=', '>=']
             values = (measurements[first][prop], measurements[second][prop])
             if op == '==' and not np.allclose(values[0], values[1]):
@@ -761,42 +779,54 @@ def cases_of_interest():
             print(S_X, P_X, c)
             sys.exit(1)
 
-        interesting = [
-            not np.allclose(
-                measurements['PRP_Renyi_only']['renyi'],
-                measurements['POP_Renyi_only']['renyi'],
-            ),
-            not np.allclose(
-                measurements['POP_Renyi_only']['shannon'],
-                measurements['POP_Renyi_Shannon']['shannon'],
-            ),
-            not np.allclose(
-                measurements['POP_Renyi_only']['bandwidth'],
-                measurements['POP_Renyi_Bandwidth']['bandwidth'],
-            ),
-            not np.allclose(
-                measurements['POP_Renyi_only']['shannon'],
-                measurements['POP_Shannon_only']['shannon'],
-            ),
-        ]
-        if all(interesting):
-            print('BINGO!')
-            print(S_X, P_X, c, interesting)
-            sys.exit(1)
+        # interesting = [
+        #     not np.allclose(
+        #         measurements['PRP_Renyi_only']['renyi'],
+        #         measurements['POP_Renyi_only']['renyi'],
+        #     ),
+        #     not np.allclose(
+        #         measurements['POP_Renyi_only']['shannon'],
+        #         measurements['POP_Renyi_Shannon']['shannon'],
+        #     ),
+        #     not np.allclose(
+        #         measurements['POP_Renyi_only']['bandwidth'],
+        #         measurements['POP_Renyi_Bandwidth']['bandwidth'],
+        #     ),
+        #     not np.allclose(
+        #         measurements['POP_Renyi_only']['shannon'],
+        #         measurements['POP_Shannon_only']['shannon'],
+        #     ),
+        # ]
+        # if all(interesting):
+        #     print('BINGO!')
+        #     print(S_X, P_X, c, interesting)
+        #     sys.exit(1)
     return
 
 
 def cli():
     from argparse import ArgumentParser
     parser = ArgumentParser()
-    parser.add_argument('--solver', type=str, default='all')
+    parser.add_argument('command', type=str)
     args = parser.parse_args()
-    main(*nodeJS(), solver_name=args.solver)
-    #main(*sub_dataset(*nodeJS(), 1000))
+    command = args.command
+    if command.startswith('large_'):
+        command = command[len('large_'):]
+        assert command == 'all' or command in the_solvers, command
+        main(*nodeJS(), solver_name=command)
+    elif command.startswith('medium_'):
+        command = command[len('medium_'):]
+        assert command == 'all' or command in the_solvers, command
+        main(*sub_dataset(*nodeJS(), 300), solver_name=command)
+    elif command == 'correctness_tests':
+        correctness_tests(n_cases=50, n_objects=100, also_brute_force=False)
+        correctness_tests(n_cases=500, n_objects=10, also_brute_force=True)
+    elif command == 'eye_tests':
+        eye_tests()
+    else:
+        print()
+        raise NotImplementedError(command)
 
 
 if __name__ == '__main__':
-    #main(*nodeJS())
-    #inspect_data()
-    #cli()
-    cases_of_interest()
+    cli()
