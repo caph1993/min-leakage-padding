@@ -206,9 +206,8 @@ def PRP_Renyi_only(M: CS_Matrix, P_X: FloatArray):
     P_XY = M.new()
     for j in tqdm(range(m - 1, -1, -1)):
         mid_i = max_i[j]
-        while mid_i >= 0 and min_j[mid_i] == j:
+        while mid_i > 0 and min_j[mid_i - 1] == j:
             mid_i -= 1
-        mid_i += 1
         greedy = max(B_X[mid_i:max_i[j] + 1])
         if greedy == 0:
             continue
@@ -832,7 +831,7 @@ def cli():
     elif command.startswith('medium_'):
         command = command[len('medium_'):]
         assert command == 'all' or command in the_solvers, command
-        main(*sub_dataset(*nodeJS(), 300), solver_name=command)
+        main(*sub_dataset(*nodeJS(), 1000), solver_name=command)
     elif command == 'correctness_tests':
         # 250 tests of around and at most 100 objects each.
         correctness_tests(n_cases=250, n_objects=100, also_brute_force=False)
