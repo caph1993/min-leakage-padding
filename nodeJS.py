@@ -8,9 +8,9 @@ To run from command line, just
 COMMAND should be one of:
         large_all:                 run all algorithms      in nodeJS dataset
         medium_all:                run all algorithms      in subset of nodeJS dataset
-        large_POP_Renyi_Bandwidth: run POP_Renyi_Bandwidth in nodeJS dataset
-        large_POP_Renyi_only:      run POP_Renyi_only      in nodeJS dataset
-        medium_POP_Shannon_only:   run POP_Shannon_only    in subset of nodeJS dataset
+        large_POP_Renyi_Bandwidth: run PopReBa in nodeJS dataset
+        large_POP_Renyi_only:      run PopRe      in nodeJS dataset
+        medium_POP_Shannon_only:   run PopSh    in subset of nodeJS dataset
         
         etc. (see the dictionary called "the_solvers")
 """
@@ -20,9 +20,10 @@ import sys
 import time
 from typing import List, Optional, Sequence, Union
 import numpy as np
-from typing import Tuple
+from typing import Tuple, Dict
 from scipy.sparse import dok_array
 from tqdm import tqdm as _tqdm
+import pandas as pd
 
 IntArray = np.ndarray  # Just for reference
 FloatArray = np.ndarray  # Just for reference
@@ -151,6 +152,9 @@ class CS_Matrix:
         diff_arr = np.array([diff[x, y] for x, y in zip(X, Y)], dtype=float)
         return np.allclose(diff_arr, 0)
 
+    def to_array(self):
+        return self.dok.toarray()
+
 
 def bounds_Y_given_X(S_X: IntArray, S_Y: IntArray, c: float):
     '''
@@ -193,10 +197,105 @@ def test_bounds(S_X: IntArray, c):
     return
 
 
+from gui import VisualizerPath, new_visualizer
+import matplotlib.pyplot as plt
+from tempfile import TemporaryDirectory
+
+PLT_RC_PARAMS: Dict = plt.rcParams  # type:ignore
+
+
+class ExamplePlot:
+
+    def __init__(self, S_X: IntArray, P_X: FloatArray, c: float):
+        self.S_X = S_X
+        self.P_X = P_X
+        self.c = c
+
+    def plot(self, P_Y_given_X: CS_Matrix, measurements,
+             ax: Optional[plt.Axes] = None, save: Optional[Path] = None,
+             tight=True, printer=None, title=None):
+        P_Y_given_X = P_Y_given_X.to_array()
+        S_X = self.S_X
+        P_X = self.P_X
+        if printer:
+            printer(f'{measurements["name"]}. {len(S_X)} objects')
+            printer(f'c: {self.c}')
+            printer(f'Sizes: {self.S_X}')
+            printer(f'Freqs: {self.P_X}')
+            printer(f'Renyi: {measurements["renyi"]}')
+            printer(f'Shannon: {measurements["shannon"]}')
+            printer(f'Elapsed: {measurements["elapsed"]}')
+            printer(f'Bandwidth: {measurements["bandwidth"]}')
+            printer(f'Matrix:')
+            printer(P_Y_given_X)
+        # P_Y = np.matmul(P_X, P_Y_given_X) # This shows the sum
+        P_Y = np.max(P_X[:, None] * P_Y_given_X, axis=0)  # This shows the max
+        n = len(P_X)
+
+        prev = PLT_RC_PARAMS['font.size']
+        if tight:
+            PLT_RC_PARAMS.update({'font.size': 20})
+
+        _ax = ax
+        ax = plt.gca() if ax is None else ax
+
+        min_X = min(S_X)
+        max_X = max(S_X)
+        d_X = (max_X - min_X) * 0.12
+        min_X -= d_X
+        max_X += d_X
+        ax.set_xlim([min_X, max_X])
+
+        ax.plot([0, max_X], [1, 1], color='black', alpha=0.5)
+        ax.plot([0, max_X], [-1, -1], color='black', alpha=0.5)
+        ax.scatter(S_X, [+1] * n, color='black', alpha=0.5)
+        ax.scatter(S_X, [-1] * n, color='black', alpha=0.5)
+        width = max(2, min(4, 5 / d_X))
+        ax.bar(S_X, -P_Y / P_Y.max() * 0.45, color='tab:red', bottom=-1,
+               width=width, alpha=0.8)
+        ax.bar(S_X, P_X / P_X.max() * 0.45, color='tab:blue', bottom=1,
+               width=width, alpha=0.8)
+        for i in range(n):
+            for j in range(n):
+                strength = P_Y_given_X[i, j]
+                if strength > 0:
+                    arrowprops = dict(arrowstyle="->", alpha=strength,
+                                      color='tab:green')
+                    ax.annotate("", xytext=(S_X[i], 1), xy=(S_X[j], -1),
+                                arrowprops=arrowprops)
+                    ax.annotate("", xytext=(S_X[i], 1),
+                                xy=((S_X[i] + S_X[j]) / 2, 0),
+                                arrowprops=arrowprops)
+        if tight:
+            ax.set_ylabel('Padded' + ' ' * 10 + 'Original')
+        else:
+            ax.set_ylabel('Padded' + ' ' * 39 + 'Original')
+        ax.set_xlabel('Object size')
+        ax.set_ylim([-1.5, 1.5])
+        ax.tick_params(left=False, right=False, labelleft=False,
+                       labelright=False)
+        if title is not None:
+            ax.set_title(title)
+
+        # if tight:
+        #     for label in (ax.get_xticklabels() + ax.get_yticklabels()):
+        #         label.set_fontsize(22)
+        if save:
+            with TemporaryDirectory() as tmpdir:
+                tmp = Path(tmpdir) / save.name
+                plt.savefig(tmp, bbox_inches='tight')
+                plt.close()
+                tmp.replace(save)
+        elif _ax is None:
+            plt.show()
+        PLT_RC_PARAMS.update({'font.size': prev})
+        return
+
+
 # Solvers
 
 
-def PRP_Renyi_only(M: CS_Matrix, P_X: FloatArray):
+def PrpRe(M: CS_Matrix, P_X: FloatArray):
     n, m = M.shape
     min_i, max_i = M.min_i, M.max_i
     min_j, max_j = M.min_j, M.max_j
@@ -219,10 +318,10 @@ def PRP_Renyi_only(M: CS_Matrix, P_X: FloatArray):
     return P_Y_given_X, locals()
 
 
-def PRP_Renyi_Bandwidth(M: CS_Matrix, P_X: FloatArray, pre=None):
+def PrpReBa(M: CS_Matrix, P_X: FloatArray, pre=None):
     # Improve bandwidth
     n, m = M.shape
-    P_Y_given_X, scope = pre or PRP_Renyi_only(M, P_X)
+    P_Y_given_X, scope = pre or PrpRe(M, P_X)
     old_P_XY: CS_Matrix = scope['P_XY']
     min_j, max_j = M.min_j, M.max_j
     min_i, max_i = M.min_i, M.max_i
@@ -251,7 +350,7 @@ def PRP_Renyi_Bandwidth(M: CS_Matrix, P_X: FloatArray, pre=None):
     for i in tqdm(range(n)):
         budget = P_X[i] - sum(P_XY[i, j] for j in pinned[i])
         for j in range(min_j[i], max_j[i] + 1):
-            if np.allclose(budget, 0, atol=1e-15):
+            if np.allclose(budget, 0, atol=1e-12):
                 break
             if j in pinned[i]:
                 continue
@@ -263,7 +362,7 @@ def PRP_Renyi_Bandwidth(M: CS_Matrix, P_X: FloatArray, pre=None):
     return P_Y_given_X, locals()
 
 
-def POP_Renyi_only(M: CS_Matrix, P_X: FloatArray):
+def PopRe(M: CS_Matrix, P_X: FloatArray):
     # Assume S_X are sorted
     n, m = M.shape
     min_i, max_i = M.min_i, M.max_i
@@ -313,8 +412,8 @@ def POP_Renyi_only(M: CS_Matrix, P_X: FloatArray):
     return P_Y_given_X, locals()
 
 
-def POP_Renyi_Bandwidth(M: CS_Matrix, P_X: FloatArray, pre=None):
-    P_Y_given_X, scope = pre or POP_Renyi_only(M, P_X)
+def PopReBa(M: CS_Matrix, P_X: FloatArray, pre=None):
+    P_Y_given_X, scope = pre or PopRe(M, P_X)
     n, m = M.shape
     min_j = M.min_j
     Y_given_X = scope['Y_given_X']
@@ -332,8 +431,8 @@ def POP_Renyi_Bandwidth(M: CS_Matrix, P_X: FloatArray, pre=None):
     return P_Y_given_X, locals()
 
 
-def POP_Renyi_Shannon(M: CS_Matrix, P_X: FloatArray, pre=None):
-    P_Y_given_X, scope = pre or POP_Renyi_only(M, P_X)
+def PopReSh(M: CS_Matrix, P_X: FloatArray, pre=None):
+    P_Y_given_X, scope = pre or PopRe(M, P_X)
     n, m = M.shape
     min_j, max_j = M.min_j, M.max_j
     min_i, max_i = M.min_i, M.max_i
@@ -416,7 +515,7 @@ def POP_Renyi_Shannon(M: CS_Matrix, P_X: FloatArray, pre=None):
     return P_Y_given_X, locals()
 
 
-def POP_Shannon_only(M: CS_Matrix, P_X: FloatArray):
+def PopSh(M: CS_Matrix, P_X: FloatArray):
     '''
     DP optimal solution to the object padding problem.
 
@@ -498,12 +597,12 @@ def nodeJS():
 
 
 the_solvers = {
-    'PRP_Renyi_only': (PRP_Renyi_only, None),
-    'POP_Renyi_only': (POP_Renyi_only, None),
-    'POP_Shannon_only': (POP_Shannon_only, None),
-    'PRP_Renyi_Bandwidth': (PRP_Renyi_Bandwidth, 'PRP_Renyi_only'),
-    'POP_Renyi_Bandwidth': (POP_Renyi_Bandwidth, 'POP_Renyi_only'),
-    'POP_Renyi_Shannon': (POP_Renyi_Shannon, 'POP_Renyi_only'),
+    'PrpRe': (PrpRe, None),
+    'PopRe': (PopRe, None),
+    'PopSh': (PopSh, None),
+    'PrpReBa': (PrpReBa, 'PrpRe'),
+    'PopReBa': (PopReBa, 'PopRe'),
+    'PopReSh': (PopReSh, 'PopRe'),
 }
 # Make sure the order matches dependencies
 assert list(the_solvers.values()) == sorted(the_solvers.values(),
@@ -590,6 +689,7 @@ def measure(solver, S_X: IntArray, P_X: FloatArray, c: float, **kwargs):
         'shannon': shannon,
         'elapsed': elapsed,
         'bandwidth': bandwidth,
+        'name': solver.__name__,
     }
     alg_output = P_Y_given_X, scope
     return measurements, alg_output
@@ -637,14 +737,16 @@ def sub_dataset(S_X: IntArray, P_X: FloatArray, n):
 
 def main(S_X: IntArray, P_X: FloatArray, solver_name='all'):
     assert np.all(np.diff(S_X) >= 0)
-
+    n = len(S_X)
     # Filter
     if solver_name != 'all':
         solvers = {solver_name: the_solvers[solver_name]}
     else:
         solvers = {**the_solvers}
-
-    with open(cwd / 'paper-cases' / f'{solver_name}-{len(S_X)}.txt', 'a') as f:
+    vpath = new_visualizer()
+    _df = []
+    with open(cwd / 'paper-cases' / f'{len(S_X)}-{solver_name}.py.txt',
+              'a') as f:
         for c in [1, 1.02, 1.04, 1.06, 1.08, 1.1]:
             Measurements = {}
             Outputs = {}
@@ -652,58 +754,60 @@ def main(S_X: IntArray, P_X: FloatArray, solver_name='all'):
                 print('-' * 30)
                 print(name, c)
 
+                dep = dependency if dependency in Outputs else None
                 # Inject pre-computed outputs:
-                kwargs = {'pre': Outputs.get(dependency)}
-                if kwargs['pre'] is None:
-                    kwargs.pop('pre')
+                kwargs = {'pre': Outputs.get(dep)} if dep else {}
                 # Run and measure
-                measurements, output = measure(solver, S_X, P_X, c, **kwargs)
+                metrics, output = measure(solver, S_X, P_X, c, **kwargs)
                 # Fix time
-                if kwargs:
-                    prev = Measurements[dependency]
-                    measurements['elapsed'] += prev['elapsed']
+                dependency = kwargs.get('pre')
+                if dep:
+                    prev = Measurements[dep]
+                    metrics['elapsed'] += prev['elapsed']
 
                 Outputs[name] = output
-                Measurements[name] = measurements
+                Measurements[name] = metrics
 
-                measurements = {'name': name, 'c': c, **measurements}
-                f.write(f'{measurements}\n')
+                metrics = {'name': name, 'c': c, **metrics}
+                f.write(f'{metrics}\n')
+                _df.append(metrics)
                 f.flush()
-                print(measurements)
+                print(metrics)
+            if c > 1:
+                df = pd.DataFrame(_df)
+                for prop in ['elapsed', 'bandwidth', 'renyi', 'shannon']:
+                    ax = plt.gca()
+                    for name in df['name'].unique():
+                        sub_df = df[df['name'] == name]
+                        sub_df.plot('c', prop, label=name, ax=ax, marker='o')
+                    plt.ylabel(prop)
+                    plt.grid()
+                    vpath.print(df[['c', prop, 'name']])
+                    vpath.plot_and_close(plt)
+    df = pd.DataFrame(_df)
+    df['bandwidth_percent'] = df['bandwidth'] * 100
+    df.to_csv(cwd / 'paper-cases' / f'{n}.txt')
+    for name in df['name'].unique():
+        df[df['name'] == name].to_csv(cwd / 'paper-cases' / f'{n}-{name}.txt',
+                                      sep=' ', index=False)
     return
 
 
-def correctness_tests(n_cases=500, n_objects=10, also_brute_force=False):
+def generate(max_n_objects: int):
+    object_size = max(100, 10 * max_n_objects)
+    n = max(*(np.random.randint(1, max_n_objects) for _ in range(3)))
+    S_X = np.random.choice(range(1, object_size + 1), n, replace=False)
+    S_X.sort()
+    c = (np.random.choice(S_X) / np.random.choice(S_X))
+    c = max(c, 1 / c)
+    c = round(c + 0.01 * np.random.random(), 2)
+    P_X = np.random.random(n)
+    P_X /= P_X.sum()
+    return S_X, P_X, c
 
+
+def correctness_tests(n_cases=5000, n_objects=10, also_brute_force=False):
     #np.random.seed(0)
-
-    # def generate(n):
-    #     # http://www.eecs.harvard.edu/~michaelm/NEWWORK/postscripts/filesize.pdf
-    #     # They criticize lognormal, but it's an approximation.
-    #     # Search for "change [12]" in the PDF.
-    #     S_X = np.power(2, np.random.normal(15, 3, size=n))
-    #     S_X = 1 + np.array(S_X, dtype=int)
-    #     # Promote some repetitions
-    #     S_X = np.random.choice(S_X, size=n, replace=True)
-    #     S_X.sort()
-    #     # I will assume a similar behavior for the probabilities.
-    #     P_X = np.power(2, np.random.normal(15, 3, size=n))
-    #     P_X /= P_X.sum()
-    #     c = 1.1
-    #     return S_X, P_X, c
-
-    def generate(max_n_objects):
-        object_size = max(100, 10 * max_n_objects)
-        n = max(*(np.random.randint(1, max_n_objects) for _ in range(3)))
-        S_X = np.random.choice(range(1, object_size + 1), n, replace=False)
-        S_X.sort()
-        c = (np.random.choice(S_X) / np.random.choice(S_X))
-        c = max(c, 1 / c)
-        c = round(c + 0.01 * np.random.random(), 2)
-        P_X = np.random.random(n)
-        P_X /= P_X.sum()
-        return S_X, P_X, c
-
     from itertools import product
 
     def POP_bruteforce(function):
@@ -737,8 +841,8 @@ def correctness_tests(n_cases=500, n_objects=10, also_brute_force=False):
     if also_brute_force:
         solvers = {
             **the_solvers,
-            'POP_BF_Renyi_Shannon': (POP_bruteforce(renyi_shannon), None),
-            'POP_BF_Shannon_Renyi': (POP_bruteforce(shannon_renyi), None),
+            'BF_ReSh': (POP_bruteforce(renyi_shannon), None),
+            'BF_ShRe': (POP_bruteforce(shannon_renyi), None),
         }
     else:
         solvers = {**the_solvers}
@@ -754,20 +858,20 @@ def correctness_tests(n_cases=500, n_objects=10, also_brute_force=False):
 
         checks = [
             # PRP. renyi leakage and bandwidth
-            ('renyi', 'PRP_Renyi_only', '<=', 'POP_Renyi_only'),
-            ('renyi', 'PRP_Renyi_only', '==', 'PRP_Renyi_Bandwidth'),
-            ('bandwidth', 'PRP_Renyi_Bandwidth', '<=', 'PRP_Renyi_only'),
+            ('renyi', 'PrpRe', '<=', 'PopRe'),
+            ('renyi', 'PrpRe', '==', 'PrpReBa'),
+            ('bandwidth', 'PrpReBa', '<=', 'PrpRe'),
             # POP. renyi leakage and bandwidth
-            ('renyi', 'POP_Renyi_only', '==', 'POP_BF_Renyi_Shannon'),
-            ('renyi', 'POP_Renyi_only', '==', 'POP_Renyi_Bandwidth'),
-            ('renyi', 'POP_Shannon_only', '>=', 'POP_Renyi_only'),
-            ('renyi', 'POP_Shannon_only', '==', 'POP_BF_Shannon_Renyi'),
-            ('bandwidth', 'POP_Renyi_Bandwidth', '<=', 'POP_Renyi_only'),
+            ('renyi', 'PopRe', '==', 'BF_ReSh'),
+            ('renyi', 'PopRe', '==', 'PopReBa'),
+            ('renyi', 'PopSh', '>=', 'PopRe'),
+            ('renyi', 'PopSh', '==', 'BF_ShRe'),
+            ('bandwidth', 'PopReBa', '<=', 'PopRe'),
             # POP. shannon leakage
-            ('shannon', 'POP_Renyi_Shannon', '>=', 'POP_BF_Renyi_Shannon'),
-            ('shannon', 'POP_Renyi_Shannon', '<=', 'POP_Renyi_only'),
-            ('shannon', 'POP_Shannon_only', '==', 'POP_BF_Shannon_Renyi'),
-            ('shannon', 'POP_Shannon_only', '<=', 'POP_Renyi_Shannon'),
+            ('shannon', 'PopReSh', '>=', 'BF_ReSh'),
+            ('shannon', 'PopReSh', '<=', 'PopRe'),
+            ('shannon', 'PopSh', '==', 'BF_ShRe'),
+            ('shannon', 'PopSh', '<=', 'PopReSh'),
         ]
 
         all_leq = lambda a, b: np.all((a <= b) | np.isclose(a, b))
@@ -795,26 +899,49 @@ def correctness_tests(n_cases=500, n_objects=10, also_brute_force=False):
 
         # interesting = [
         #     not np.allclose(
-        #         measurements['PRP_Renyi_only']['renyi'],
-        #         measurements['POP_Renyi_only']['renyi'],
+        #         measurements['PrpRe']['renyi'],
+        #         measurements['PopRe']['renyi'],
         #     ),
         #     not np.allclose(
-        #         measurements['POP_Renyi_only']['shannon'],
-        #         measurements['POP_Renyi_Shannon']['shannon'],
+        #         measurements['PopRe']['shannon'],
+        #         measurements['PopReSh']['shannon'],
         #     ),
         #     not np.allclose(
-        #         measurements['POP_Renyi_only']['bandwidth'],
-        #         measurements['POP_Renyi_Bandwidth']['bandwidth'],
+        #         measurements['PopRe']['bandwidth'],
+        #         measurements['PopReBa']['bandwidth'],
         #     ),
         #     not np.allclose(
-        #         measurements['POP_Renyi_only']['shannon'],
-        #         measurements['POP_Shannon_only']['shannon'],
+        #         measurements['PopRe']['shannon'],
+        #         measurements['PopSh']['shannon'],
         #     ),
         # ]
         # if all(interesting):
         #     print('BINGO!')
         #     print(S_X, P_X, c, interesting)
         #     sys.exit(1)
+    return
+
+
+def find_paper_example_POP_plus(n_objects=10, n_examples=10):
+    vpath = new_visualizer('Example')
+    tc = 1
+    while n_examples >= 0:
+        S_X, P_X, c = generate(max_n_objects=n_objects)
+        # c = 1.1
+        m1, (out1, _) = measure(PopSh, S_X, P_X, c)
+        m2, (out2, _) = measure(PopRe, S_X, P_X, c)
+        m3, (out3, _) = measure(PopReSh, S_X, P_X, c)
+        if m1['renyi'] != m2['renyi'] and m2['shannon'] != m3['shannon']:
+            example = ExamplePlot(S_X, P_X, c)
+            print(S_X, P_X, c)
+            example.plot(out1, m1, save=vpath.png(), printer=vpath.print)
+            next(vpath)
+            example.plot(out2, m2, save=vpath.png(), printer=vpath.print)
+            next(vpath)
+            example.plot(out3, m3, save=vpath.png(), printer=vpath.print)
+            next(vpath)
+            n_examples -= 1
+        tc += 1
     return
 
 
@@ -828,17 +955,25 @@ def cli():
         command = command[len('large_'):]
         assert command == 'all' or command in the_solvers, command
         main(*nodeJS(), solver_name=command)
+    elif command.startswith('small_'):
+        command = command[len('small_'):]
+        assert command == 'all' or command in the_solvers, command
+        main(*sub_dataset(*nodeJS(), 100), solver_name=command)
     elif command.startswith('medium_'):
         command = command[len('medium_'):]
         assert command == 'all' or command in the_solvers, command
         main(*sub_dataset(*nodeJS(), 1000), solver_name=command)
+    elif command == 'inspect_data':
+        inspect_data()
     elif command == 'correctness_tests':
-        # 250 tests of around and at most 100 objects each.
-        correctness_tests(n_cases=250, n_objects=100, also_brute_force=False)
         # 250 tests against bruteforce of around and at most 10 objects each.
         correctness_tests(n_cases=250, n_objects=10, also_brute_force=True)
+        # 250 tests of around and at most 100 objects each.
+        correctness_tests(n_cases=250, n_objects=100, also_brute_force=False)
     elif command == 'eye_tests':
         eye_tests()
+    elif command == 'find_paper_example_POP_plus':
+        find_paper_example_POP_plus()
     else:
         print(__doc__)
         raise NotImplementedError(command)
