@@ -63,6 +63,8 @@ class CS_Matrix:
         self.min_j, self.max_j = min_j, max_j
         self.min_i, self.max_i = self.inverse_bounds()
         self.dok = dok_array((n, m))
+        self.S_X = None
+        self.S_Y = None
 
     def total_entries(self):
         return np.sum(self.max_j - self.min_j + 1)  # type: ignore
@@ -90,6 +92,8 @@ class CS_Matrix:
         out.shape = self.shape
         out.min_j = self.min_j
         out.max_j = self.max_j
+        out.S_X = self.S_X
+        out.S_Y = self.S_Y
         if dok is None:
             out.dok = dok_array(self.shape)
         else:
@@ -132,7 +136,10 @@ class CS_Matrix:
     def from_sizes(cls, S_X: IntArray, c: float):
         S_Y = np.unique(S_X)
         min_j, max_j = bounds_Y_given_X(S_X, S_Y, c)
-        return cls(min_j, max_j), S_Y
+        M = cls(min_j, max_j)
+        M.S_X = S_X
+        M.S_Y = S_Y
+        return M, S_Y
 
     def check(self):
         X, Y = self.dok.nonzero()
@@ -828,7 +835,12 @@ def correctness_tests(n_cases=5000, n_objects=10, also_brute_force=False):
             'Can not handle more than 10'
             n, m = M.shape
             poss_j = [range(M.min_j[i], M.max_j[i] + 1) for i in range(n)]
-            Y_given_X = min(product(*poss_j), key=lambda f: function(f, P_X))
+            
+            if function is renyi_bandwidth:
+                key = lambda f: function(f, P_X, M.S_X, M.S_Y)
+            else:
+                key = lambda f: function(f, P_X)
+            Y_given_X = min(product(*poss_j), key=key)
             Y_given_X = np.array(Y_given_X, dtype=int)
             P_Y_given_X = M.new()
             P_Y_given_X[np.arange(n), Y_given_X] = 1
@@ -850,11 +862,17 @@ def correctness_tests(n_cases=5000, n_objects=10, also_brute_force=False):
     def shannon_renyi(f, P_X):
         return tuple(reversed(renyi_shannon(f, P_X)))
 
+    def renyi_bandwidth(f, P_X, S_X, S_Y):
+        renyi, shannon = renyi_shannon(f, P_X)
+        bandwidth = sum(P_X[x] * (S_Y[y]-S_X[x]) for x, y in enumerate(f))
+        return (renyi, bandwidth)
+
     if also_brute_force:
         solvers = {
             **the_solvers,
             'BF_ReSh': (POP_bruteforce(renyi_shannon), None),
             'BF_ShRe': (POP_bruteforce(shannon_renyi), None),
+            'BF_ReBa': (POP_bruteforce(renyi_bandwidth), None),
         }
     else:
         solvers = {**the_solvers}
@@ -884,6 +902,9 @@ def correctness_tests(n_cases=5000, n_objects=10, also_brute_force=False):
             ('shannon', 'PopReSh', '<=', 'PopRe'),
             ('shannon', 'PopSh', '==', 'BF_ShRe'),
             ('shannon', 'PopSh', '<=', 'PopReSh'),
+            # POP. bandwidth
+            ('bandwidth', 'PopReBa', '==', 'BF_PopReBa'),
+            ('bandwidth', 'PrpReBa', '==', 'BF_PopReBa'), # WHY???
         ]
 
         all_leq = lambda a, b: np.all((a <= b) | np.isclose(a, b))
