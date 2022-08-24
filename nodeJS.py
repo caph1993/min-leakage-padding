@@ -250,7 +250,7 @@ class ExamplePlot:
         ax.plot([0, max_X], [-1, -1], color='black', alpha=0.5)
         ax.scatter(S_X, [+1] * n, color='black', alpha=0.5)
         ax.scatter(S_X, [-1] * n, color='black', alpha=0.5)
-        width = max(2, min(4, 5 / d_X))
+        width = 5+max(2, min(4, 5 / d_X))
         ax.bar(S_X, -P_Y / P_Y.max() * 0.45, color='tab:red', bottom=-1,
                width=width, alpha=0.8)
         ax.bar(S_X, P_X / P_X.max() * 0.45, color='tab:blue', bottom=1,
@@ -958,8 +958,10 @@ def find_paper_example_POP_plus(n_objects=10, n_examples=10):
 
 def actual_paper_example_POP_plus():
     vpath = new_visualizer('Example')
-    S_X = np.array([1000, 1050, 1075, 1100, 1110,1120,1130, 1140])
-    P_X = np.array([0.20, 0.05, 0.03, 0.21, 0.11, 0.16, 0.08, 0.16])
+    S_X = np.array([1000, 1050, 1100, 1110, 1120, 1140])
+    #P_X = np.array([0.20, 0.05, 0.21, 0.11, 0.16, 0.18])
+    #P_X /= P_X.sum()
+    P_X = np.array([0.22, 0.05, 0.23 , 0.12, 0.18, 0.20])
     c = 1.1
     m1, (out1, _) = measure(PopSh, S_X, P_X, c)
     m2, (out2, _) = measure(PopRe, S_X, P_X, c)
