@@ -956,6 +956,25 @@ def find_paper_example_POP_plus(n_objects=10, n_examples=10):
         tc += 1
     return
 
+def actual_paper_example_POP_plus():
+    vpath = new_visualizer('Example')
+    S_X = np.array([1000, 1050, 1075, 1100, 1110,1120,1130, 1140])
+    P_X = np.array([0.20, 0.05, 0.03, 0.21, 0.11, 0.16, 0.08, 0.16])
+    c = 1.1
+    m1, (out1, _) = measure(PopSh, S_X, P_X, c)
+    m2, (out2, _) = measure(PopRe, S_X, P_X, c)
+    m3, (out3, _) = measure(PopReSh, S_X, P_X, c)
+    assert m1['renyi'] != m2['renyi'] and m2['shannon'] != m3['shannon']
+    example = ExamplePlot(S_X, P_X, c)
+    print(S_X, P_X, c)
+    example.plot(out1, m1, save=vpath.png(), printer=vpath.print)
+    next(vpath)
+    example.plot(out2, m2, save=vpath.png(), printer=vpath.print)
+    next(vpath)
+    example.plot(out3, m3, save=vpath.png(), printer=vpath.print)
+    next(vpath)
+    return
+
 
 def cli():
     from argparse import ArgumentParser
@@ -986,6 +1005,8 @@ def cli():
         eye_tests()
     elif command == 'find_paper_example_POP_plus':
         find_paper_example_POP_plus()
+    elif command == 'actual_paper_example_POP_plus':
+        actual_paper_example_POP_plus()
     else:
         print(__doc__)
         raise NotImplementedError(command)
