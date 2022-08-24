@@ -695,7 +695,7 @@ def measure(solver, S_X: IntArray, P_X: FloatArray, c: float, **kwargs):
     return measurements, alg_output
 
 
-def inspect_data():
+def bound_test_nodeJS():
     S_X, P_X = nodeJS()
     c = 1.1
     print('testing bound function on subset...')
@@ -712,13 +712,25 @@ def inspect_data():
         print(f'the total number of elements is {delta.sum()}')
         print(f'row {delta.argmax()} has {delta.max()} elems')
         print(f'weighted number of elems: {(delta*P_X).sum():.2f}')
-    # import matplotlib.pyplot as plt
-    # counts, bin_edges = np.histogram(np.log2(S_X), bins=31, weights=P_X)
-    # centers = bin_edges[:-1] + (bin_edges[1] - bin_edges[0]) / 2
-    # plt.bar(centers, counts)
-    # #P_X
-    # plt.show()
-    main(*sub_dataset(*nodeJS(), 1000))
+    
+def inspect_data():
+    vpath = new_visualizer()
+    for (S_X, P_X) in [sub_dataset(*nodeJS(), 100), sub_dataset(*nodeJS(), 1000), nodeJS()]:
+        vpath.print(f'n={len(S_X)}')
+        vpath.print(f'm={len(np.unique(S_X))}')
+        vpath.print(f'mean={np.dot(S_X, P_X)}')
+        vpath.print(f'median={S_X[np.searchsorted(np.cumsum(P_X), 0.5)]}')
+        vpath.print(f'Number of available positions:')
+        for c in [1, 1.02, 1.04, 1.06, 1.08, 1.1]:
+            M, _ = CS_Matrix.from_sizes(S_X, c)
+            vpath.print(f'c={c:.2f} positions={np.sum(M.max_j+1-M.min_j)}')
+        counts, bin_edges = np.histogram(np.log2(S_X), bins=31, weights=P_X)
+        centers = bin_edges[:-1] + (bin_edges[1] - bin_edges[0]) / 2
+        plt.bar(centers, counts)
+        plt.xlabel('log2(file size)')
+        plt.ylabel('weighted counts')
+        vpath.print(counts.sum())
+        vpath.plot_and_close(plt)
     return
 
 
