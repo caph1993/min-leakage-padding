@@ -8,11 +8,11 @@ To run from command line, just
 COMMAND should be one of:
         large_all:                 run all algorithms      in nodeJS dataset
         medium_all:                run all algorithms      in subset of nodeJS dataset
-        large_POP_Renyi_Bandwidth: run PopReBa in nodeJS dataset
-        large_POP_Renyi_only:      run PopRe      in nodeJS dataset
-        medium_POP_Shannon_only:   run PopSh    in subset of nodeJS dataset
+        large_PopReBa:             run PopReBa in nodeJS dataset
+        large_PopRe:               run PopRe      in nodeJS dataset
+        medium_PopSh:              run PopSh    in subset of nodeJS dataset
         
-        etc. (see the dictionary called "the_solvers")
+        etc. (see the dictionary called "the_solvers" for all solvers, and function cli for more commands)
 """
 from functools import lru_cache, wraps
 from pathlib import Path
@@ -933,8 +933,26 @@ def correctness_tests(n_cases=5000, n_objects=10, also_brute_force=False):
         #     sys.exit(1)
     return
 
+def find_paper_example_PopReBa(n_objects=16, n_examples=10):
+    vpath = new_visualizer('Example')
+    tc = 1
+    while n_examples >= 0:
+        S_X, P_X, c = generate(max_n_objects=n_objects)
+        # c = 1.1
+        m2, (out2, _) = measure(PopRe, S_X, P_X, c)
+        m3, (out3, _) = measure(PopReBa, S_X, P_X, c)
+        if m2['bandwidth'] != m3['bandwidth']:
+            example = ExamplePlot(S_X, P_X, c)
+            print(S_X, P_X, c)
+            example.plot(out2, m2, save=vpath.png(), printer=vpath.print)
+            next(vpath)
+            example.plot(out3, m3, save=vpath.png(), printer=vpath.print)
+            next(vpath)
+            n_examples -= 1
+        tc += 1
+    return
 
-def find_paper_example_POP_plus(n_objects=10, n_examples=10):
+def find_paper_example_PopReSh(n_objects=10, n_examples=10):
     vpath = new_visualizer('Example')
     tc = 1
     while n_examples >= 0:
@@ -956,7 +974,7 @@ def find_paper_example_POP_plus(n_objects=10, n_examples=10):
         tc += 1
     return
 
-def actual_paper_example_POP_plus():
+def actual_paper_example_PopReSh():
     vpath = new_visualizer('Example')
     S_X = np.array([1000, 1050, 1100, 1110, 1120, 1140])
     #P_X = np.array([0.20, 0.05, 0.21, 0.11, 0.16, 0.18])
@@ -1005,10 +1023,13 @@ def cli():
         correctness_tests(n_cases=250, n_objects=100, also_brute_force=False)
     elif command == 'eye_tests':
         eye_tests()
-    elif command == 'find_paper_example_POP_plus':
-        find_paper_example_POP_plus()
-    elif command == 'actual_paper_example_POP_plus':
-        actual_paper_example_POP_plus()
+    elif command == 'find_paper_example_PopReSh':
+        find_paper_example_PopReSh()
+        eye_tests()
+    elif command == 'find_paper_example_PopReBa':
+        find_paper_example_PopReBa()
+    elif command == 'actual_paper_example_PopReSh':
+        actual_paper_example_PopReSh()
     else:
         print(__doc__)
         raise NotImplementedError(command)
