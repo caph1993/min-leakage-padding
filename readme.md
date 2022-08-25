@@ -1,7 +1,8 @@
 How to execute all the examples of this repository:
 
 ```sh
-pip3 install scipy matplotlib numpy Pillow PySimpleGUI
+pip3 install scipy matplotlib numpy Pillow PySimpleGUI # See requirements.txt
+# Be sure of being updated:
 pip3 install scipy --upgrade # We use dok arrays for sparse matrices
 pip3 install numpy --upgrade # We use numpy.typing
 
