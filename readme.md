@@ -16,7 +16,9 @@ python3 main.py medium_all # Takes less than 3 minutes
 python3 main.py large_all # Takes some days to run due to PopSh complexity
 python3 main.py large_PrpReBa # If you only care about PrpReBa (Renyi then bandwidth)
 
-python3 main.py correctness_tests # Checks with many random examples many assertions (search for "checks = [" in main.py for the check list)
+# Correctness tests (250 brute-force and 250 non-brute-force per execution)
 # Run it multiple times for more checks (there is no seed)
+# search for "checks = [" in main.py for the list of tested assertions
+python3 main.py correctness_tests
 
 ```
