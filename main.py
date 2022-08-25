@@ -905,7 +905,7 @@ def correctness_tests(n_cases=5000, n_objects=10, also_brute_force=False):
             ('shannon', 'PopSh', '<=', 'PopReSh'),
             # These are expected NOT to hold. Uncomment and run:
             # ('bandwidth', 'PopReBa', '==', 'BF_ReBa'),
-            #('bandwidth', 'PrpReBa', '==', 'BF_ReBa'),
+            # ('bandwidth', 'PrpReBa', '==', 'BF_ReBa'),
         ]
 
         all_leq = lambda a, b: np.all((a <= b) | np.isclose(a, b))
