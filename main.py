@@ -1026,6 +1026,7 @@ def cli():
     parser.add_argument('command', type=str)
     args = parser.parse_args()
     command = args.command
+    (cwd / '__exec_files').mkdir(exist_ok=True)
     if command.startswith('large_'):
         command = command[len('large_'):]
         assert command == 'all' or command in the_solvers, command
