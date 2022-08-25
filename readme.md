@@ -5,10 +5,16 @@ pip3 install scipy matplotlib numpy Pillow PySimpleGUI
 pip3 install scipy --upgrade # We use dok arrays for sparse matrices
 pip3 install numpy --upgrade # We use numpy.typing
 
-python3 main.py correctness_tests
-python3 main.py actual_paper_example_POP_plus
-python3 main.py inspect_data
+python3 main.py actual_paper_example_PopReSh
+
+# NodeJS tests. Small means 100 top elements. Medium means 1000.
+# Large means all, i.e. around 500k.
+python3 main.py inspect_data # Histograms of the dataset
 python3 main.py small_all # Takes less than 10 seconds
 python3 main.py medium_all # Takes less than 3 minutes
 python3 main.py large_all # Takes some days to run due to PopSh complexity
+python3 main.py large_PrpReBa # If you only care about PrpReBa (Renyi then bandwidth)
+
+python3 main.py correctness_tests # Checks with many random examples many assertions (search for "checks = [" in main.py for the check list)
+
 ```

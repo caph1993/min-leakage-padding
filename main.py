@@ -578,7 +578,7 @@ def PopSh(M: CS_Matrix, P_X: FloatArray):
 def nodeJS():
     S_X: IntArray
     P_X: FloatArray
-    file = cwd / 'paper-cases' / 'nodeJS.txt'
+    file = cwd / '__exec_files' / 'nodeJS.txt'
     if not file.exists():
         print('Creating dataset from original...')
         import pandas as pd
@@ -764,7 +764,7 @@ def main(S_X: IntArray, P_X: FloatArray, solver_name='all'):
         solvers = {**the_solvers}
     vpath = new_visualizer()
     _df = []
-    with open(cwd / 'paper-cases' / f'{len(S_X)}-{solver_name}.py.txt',
+    with open(cwd / '__exec_files' / f'{len(S_X)}-{solver_name}.py.txt',
               'a') as f:
         for c in [1, 1.02, 1.04, 1.06, 1.08, 1.1]:
             Measurements = {}
@@ -805,9 +805,9 @@ def main(S_X: IntArray, P_X: FloatArray, solver_name='all'):
                     vpath.plot_and_close(plt)
     df = pd.DataFrame(_df)
     df['bandwidth_percent'] = df['bandwidth'] * 100
-    df.to_csv(cwd / 'paper-cases' / f'{n}.txt')
+    df.to_csv(cwd / '__exec_files' / f'{n}.txt')
     for name in df['name'].unique():
-        df[df['name'] == name].to_csv(cwd / 'paper-cases' / f'{n}-{name}.txt',
+        df[df['name'] == name].to_csv(cwd / '__exec_files' / f'{n}-{name}.txt',
                                       sep=' ', index=False)
     return
 
