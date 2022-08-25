@@ -897,14 +897,15 @@ def correctness_tests(n_cases=5000, n_objects=10, also_brute_force=False):
             ('renyi', 'PopSh', '>=', 'PopRe'),
             ('renyi', 'PopSh', '==', 'BF_ShRe'),
             ('bandwidth', 'PopReBa', '<=', 'PopRe'),
+            ('bandwidth', 'PopReBa', '==', 'PopRe'),
             # POP. shannon leakage
             ('shannon', 'PopReSh', '>=', 'BF_ReSh'),
             ('shannon', 'PopReSh', '<=', 'PopRe'),
             ('shannon', 'PopSh', '==', 'BF_ShRe'),
             ('shannon', 'PopSh', '<=', 'PopReSh'),
-            # POP. bandwidth
-            ('bandwidth', 'PopReBa', '==', 'BF_PopReBa'),
-            ('bandwidth', 'PrpReBa', '==', 'BF_PopReBa'), # WHY???
+            # These are expected NOT to hold. Uncomment and run:
+            # ('bandwidth', 'PopReBa', '==', 'BF_ReBa'),
+            #('bandwidth', 'PrpReBa', '==', 'BF_ReBa'),
         ]
 
         all_leq = lambda a, b: np.all((a <= b) | np.isclose(a, b))
@@ -912,6 +913,8 @@ def correctness_tests(n_cases=5000, n_objects=10, also_brute_force=False):
         for check in checks:
             prop, first, op, second = check
             if first not in measurements or second not in measurements:
+                assert first.startswith('BF_')
+                assert second.startswith('BF_')
                 continue  # Skip BF checks.
             assert op in ['==', '<=', '>=']
             values = (measurements[first][prop], measurements[second][prop])
