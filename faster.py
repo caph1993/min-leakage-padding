@@ -702,19 +702,17 @@ def PopReSh(M: CS_Matrix, P_X: FloatArray, pre=None):
                 if LO == HI:
                     cache[(LO,HI)] = 0.0
                     continue
-                elems = [
-                    i for i in range(min_i[LO], max_i[HI - 1] + 1)
-                    if LO <= poss_j[i][0] <= poss_j[i][-1] < HI
-                ]
-                columns:List[int] = sorted(set([j for i in elems for j in poss_j[i]]))
-                if not columns:
-                    cache[(LO,HI)] = 0.0
-                    continue
                 ANS, ANS_j = INF, -1
-                for j in columns:
+                for j in range(LO, HI):
                     # Greedy capture: all elems are mapped to j
-                    captured = [i for i in elems if poss_j[i][0] <= j <= poss_j[i][-1]]
-                    assert len(captured)>0
+                    captured = []
+                    for i in range(min_i[j], max_i[j] + 1):
+                        if poss_j[i][-1] >= HI:
+                            break
+                        if LO<=poss_j[i][0] <= poss_j[i][0] <= j <= poss_j[i][-1] < HI:
+                            captured.append(i)
+                    if not captured:
+                        continue
                     # Subproblems
                     lo, hi = j, j + 1
                     s = 0.
@@ -724,14 +722,18 @@ def PopReSh(M: CS_Matrix, P_X: FloatArray, pre=None):
                     ans = cache[(LO, lo)] + mid_shannon + cache[(hi, HI)]
                     if ans < ANS:
                         ANS, ANS_j = ans, j
+                if ANS_j == -1:
+                    cache[(LO,HI)] = 0.0
+                    continue
                 cache[(LO, HI)] = ANS
                 cache_j[(LO, HI)] = ANS_j
         return cache, cache_j
 
     with PrintStartEnd('PopReSh-DP'):
+        print((m*(m-1)*(m-2))//6)
         cache, cache_j = iterative_DP(P_X)
     with PrintStartEnd('PopReSh-post'):
-        Y_given_X = np.array([-10] * n)
+        Y_given_X = scope['Y_given_X'].copy() #np.array([-10] * n)
         Q: List[Tuple[int, int]] = [(0, m)]
         while Q:
             LO, HI = Q.pop()
@@ -739,16 +741,17 @@ def PopReSh(M: CS_Matrix, P_X: FloatArray, pre=None):
             if j == None:
                 continue
             lo, hi = j, j + 1
-            elems = [
-                i for i in range(min_i[LO], max_i[HI - 1] + 1)
-                if LO <= poss_j[i][0] <= poss_j[i][-1] < HI
-            ]
-            captured = [i for i in elems if poss_j[i][0] <= j <= poss_j[i][-1]]
+            captured = []
+            for i in range(min_i[j], max_i[j] + 1):
+                if poss_j[i][-1] >= HI:
+                    break
+                if LO<=poss_j[i][0] <= poss_j[i][0] <= j <= poss_j[i][-1] < HI:
+                    captured.append(i)
             # print(LO, HI, captured)
             Y_given_X[captured] = j
             Q.append((LO, lo))
             Q.append((hi, HI))
-        assert np.all(Y_given_X>=0), Y_given_X
+        assert np.all(Y_given_X>=0), (Y_given_X, cache[(0,m)])
     with PrintStartEnd('PopRe-matrix-build', 3):
         P_Y_given_X = M.deterministic(Y_given_X)
     return P_Y_given_X, locals()
