@@ -729,9 +729,123 @@ def PopReSh(M: CS_Matrix, P_X: FloatArray, pre=None):
                 cache_j[(LO, HI)] = ANS_j
         return cache, cache_j
 
+    @numba.njit
+    def stack_DP_working(P_X: FloatArray):
+        INF = 1e30
+        cache: Dict[Tuple[int,int],float] = {}
+        cache_j: Dict[Tuple[int,int],int] = {}
+        call = [(0,m)]
+        while call:
+            (LO, HI) = call.pop()
+            if (LO,HI) in cache:
+                continue
+            elif LO == HI:
+                cache[(LO,HI)] = 0.0
+                continue
+            ANS, ANS_j = INF, -1
+            deps = []
+            for j in range(LO, HI):
+                # Greedy capture: all elems are mapped to j
+                captured = []
+                for i in range(min_i[j], max_i[j] + 1):
+                    if poss_j[i][-1] >= HI:
+                        break
+                    if LO<=poss_j[i][0] <= poss_j[i][0] <= j <= poss_j[i][-1] < HI:
+                        captured.append(i)
+                if not captured:
+                    continue
+
+                # Subproblems
+                lo, hi = j, j + 1
+                if (LO,lo) not in cache:
+                    deps.append((LO,lo))
+                if (hi,HI) not in cache:
+                    deps.append((hi,HI))
+                if not deps:
+                    s = 0.
+                    for i in captured:
+                        s += P_X[i]
+                    mid_shannon = 0.0 if s==0.0 else -s * np.log2(s)
+                    ans = cache[(LO, lo)] + mid_shannon + cache[(hi, HI)]
+                    if ans < ANS:
+                        ANS, ANS_j = ans, j
+            if not deps:
+                if ANS_j == -1:
+                    cache[(LO,HI)] = 0.0
+                    continue
+                cache[(LO, HI)] = ANS
+                cache_j[(LO, HI)] = ANS_j
+            else:
+                call.append((LO,HI))
+                # sort decreasing by size to solve simple subproblems first
+                deps.sort(key=lambda x: x[1]-x[0], reverse=True)
+                call.extend(deps)
+        return cache, cache_j
+    
+    @numba.njit
+    def stack_DP(P_X: FloatArray):
+        INF = 1e30
+        j_LO = np.array([-1]*m)
+        j = m-1
+        for LO in range(m-1,-1,-1):
+            while j>0 and LO <= min_j[max_i[j-1]]:
+                j -= 1
+            j_LO[LO] = j
+            assert LO<=min_j[max_i[j]]<=poss_j[max_i[j]][0]
+
+        cache:Dict[Tuple[int,int],float] = {}
+        cache_j:Dict[Tuple[int,int],int] = {}
+        call = [(0,m)]
+        while call:
+            (LO, HI) = call.pop()
+            if (LO,HI) in cache:
+                continue
+            elif LO == HI:
+                cache[(LO,HI)] = 0.0
+                continue
+            ANS, ANS_j = INF, -1
+            deps = []
+            for j in range(j_LO[LO], HI):
+                # Greedy capture: all elems are mapped to j
+                captured = []
+                for i in range(min_i[j], max_i[j] + 1):
+                    if poss_j[i][-1] >= HI:
+                        break
+                    if LO<=poss_j[i][0] <= poss_j[i][0] <= j <= poss_j[i][-1] < HI:
+                        captured.append(i)
+                if not captured:
+                    continue
+
+                # Subproblems
+                lo, hi = j, j + 1
+                if (LO,lo) not in cache:
+                    deps.append((LO,lo))
+                if (hi,HI) not in cache:
+                    deps.append((hi,HI))
+                if not deps:
+                    s = 0.
+                    for i in captured:
+                        s += P_X[i]
+                    mid_shannon = 0.0 if s==0.0 else -s * np.log2(s)
+                    ans = cache[(LO, lo)] + mid_shannon + cache[(hi, HI)]
+                    if ans < ANS:
+                        ANS, ANS_j = ans, j
+            if not deps:
+                if ANS_j == -1:
+                    cache[(LO,HI)] = 0.0
+                    continue
+                cache[(LO, HI)] = ANS
+                cache_j[(LO, HI)] = ANS_j
+            else:
+                call.append((LO,HI))
+                # sort decreasing by size to solve simple subproblems first
+                deps.sort(key=lambda x: x[1]-x[0], reverse=True)
+                call.extend(deps)
+        return cache, cache_j
+    
     with PrintStartEnd('PopReSh-DP'):
         print((m*(m-1)*(m-2))//6)
-        cache, cache_j = iterative_DP(P_X)
+        cache, cache_j = stack_DP(P_X)
     with PrintStartEnd('PopReSh-post'):
         Y_given_X = scope['Y_given_X'].copy() #np.array([-10] * n)
         Q: List[Tuple[int, int]] = [(0, m)]
