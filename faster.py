@@ -20,7 +20,7 @@ from socket import timeout
 import sys
 import time
 from datetime import datetime, timedelta
-from typing import List, Optional, Sequence, Union
+from typing import Any, List, Optional, Sequence, Union
 import numpy as np
 from typing import Tuple, Dict
 from scipy.sparse import dok_array
@@ -31,7 +31,8 @@ import numba.typed
 # from numba import typed
 # #from numba.experimental import jitclass
 import awkward as ak
-
+#from guppy import hpy
+#HPY = hpy()
 
 IntArray = np.ndarray  # Just for reference
 FloatArray = np.ndarray  # Just for reference
@@ -110,16 +111,18 @@ class CS_Matrix:
         self.S_Y = None
 
         self.d: Cache = {}
-        self._d_keys = np.array((0,2), dtype=np.int32)
         #self._d_values = np.array((0,), dtype=np.float64)
         self.row:List[List[int]] = ak.Array([[] for i in range(n)])
         self.col:List[List[int]] = ak.Array([[] for j in range(m)])
 
-    def new(self, d:Union[None, Cache]=None):
+    P_XY: Any = None
+    Y_given_X: Any = None
+
+    def new(self, d:Union[None, Cache]=None, copy_row_col=False):
         'copy of self with new data (zeros if None)'
         out = self.__new__(self.__class__)
-        out.n = self.n
-        out.m = self.m
+        n = out.n = self.n
+        m = out.m = self.m
         out.min_j = self.min_j
         out.max_j = self.max_j
         out.S_X = self.S_X
@@ -127,23 +130,34 @@ class CS_Matrix:
         if d is None:
             d = {}
         out.d = d
-        with PrintStartEnd('sort', 1):
-            out._d_keys = sorted(d.keys())
-        with PrintStartEnd('row-cols', 1):
-            row, col = self.compute_row_cols(self.n, self.m, out._d_keys)
-            out.row = ak.Array(row)
-            out.col = ak.Array(col)
+        if copy_row_col:
+            out.row = self.row
+            out.col = self.col
+        else:
+            with PrintStartEnd('row-cols', 1):
+                @numba.njit
+                def jit_row_col(d):
+                    row = numba.typed.List()
+                    col = numba.typed.List()
+                    for _ in range(n):
+                        row.append(numba.typed.List.empty_list(numba.types.int64))
+                    for _ in range(m):
+                        col.append(numba.typed.List.empty_list(numba.types.int64))
+                    for (i,j) in d.keys():
+                        row[i].append(j)
+                        col[j].append(i)
+                    return row, col
+                row, col = jit_row_col(d)
+                del jit_row_col
+                out.row = ak.Array(row)
+                out.col = ak.Array(col)
         return out
 
-    @staticmethod
-    def compute_row_cols(n:int, m:int, d_keys):
-        row = [[] for i in range(n)]
-        col = [[] for j in range(m)]
-        for idx in range(len(d_keys)):
-            (i,j) = d_keys[idx]
-            row[i].append(j)
-            col[j].append(i)
-        return row, col
+    def _new(self, d:Cache, row, col):
+        out = self.new(d, copy_row_col=True)
+        out.row = row
+        out.col = col
+        return out
 
 
     def total_entries(self):
@@ -173,15 +187,19 @@ class CS_Matrix:
         assert other_shape in [(n, m), (n, 1), (1, m)], other_shape
         if isinstance(other, self.__class__):
             out = self.multiply_n_m_dicts(self.d, other.d)
+            return self.new(out, copy_row_col=True)
         elif other_shape == (n,m):
             out = self.multiply_n_m(self.d, other)
+            return self.new(out, copy_row_col=True)
         elif other_shape == (n,1):
             out = self.multiply_n_1(self.d, other.reshape(n))
+            return self.new(out, copy_row_col=True)
         elif other_shape == (1,m):
             out = self.multiply_1_m(self.d, other.reshape(m))
+            return self.new(out, copy_row_col=True)
         else:
             raise NotImplementedError(other_shape)
-        return self.new(out)
+        
 
     @staticmethod
     @numba.njit
@@ -216,20 +234,21 @@ class CS_Matrix:
     @staticmethod
     @numba.njit
     def sum_vertically(m, d, col):
-        return np.array([sum([d[(i,j)] for i in col[j]]) for j in range(m)])
+        return np.array([sum([d.get((i,j),0.0) for i in col[j]]) for j in range(m)])
     @staticmethod
     @numba.njit
     def sum_horizontally(n, d, row):
-        return np.array([sum([d[(i,j)] for j in row[i]]) for i in range(n)])
+        return np.array([sum([d.get((i,j),0.0) for j in row[i]]) for i in range(n)])
 
     @staticmethod
     @numba.njit
     def max_vertically(m, d, col):
-        return np.array([max([d[(i,j)] for i in col[j]]) if len(col[j])>0 else 0.0 for j in range(m)])
+        return np.array([max([d.get((i,j),0.0) for i in col[j]]) if len(col[j])>0 else 0.0 for j in range(m)])
+    
     @staticmethod
     @numba.njit
     def max_horizontally(n, d, row):
-        return np.array([max([d[(i,j)] for j in row[i]]) if len(row[i])>0 else 0.0 for i in range(n)])
+        return np.array([max([d.get((i,j),0.0) for j in row[i]]) if len(row[i])>0 else 0.0 for i in range(n)])
 
     def max(self, axis=None):
         n, m = self.n, self.m
@@ -246,23 +265,32 @@ class CS_Matrix:
     @staticmethod
     @numba.njit
     def jit_xlog2x(d):
-        return {(i,j): x*np.log2(x) for (i,j),x in d.items() if x>0}
+        return {(i,j): x*np.log2(x) if x>0 else 0.0 for (i,j),x in d.items()}
 
     def __sub__(self, other):  # Subtraction
-        n, m = self.n, self.m
-        out = self.d.copy()
-        for (i,j), x in other.d.items():
-            out[(i,j)] = out.get((i,j), 0) - x
+        out = self.jit_sub(self.d, other.d)
         return self.new(out)
+    
+    @staticmethod
+    @numba.njit
+    def jit_sub(d1, d2): # Subtraction
+        d = d1.copy()
+        for (i,j), x in d2.items():
+            d[(i,j)] = d.get((i,j), 0) - x
+        return d
+        
 
     def check(self):
-        n, m = self.n, self.m
-        for (i,j), x in self.d.items():
-            i, j = i, j
+        return self.jit_check(self.d, self.min_j, self.max_j, self.min_i, self.max_i)
+    @staticmethod
+    @numba.njit
+    def jit_check(d, min_j, max_j, min_i, max_i):
+        for (i,j), x in d.items():
             if x==0:
                 continue
-            assert self.min_j[i] <= j <= self.max_j[i], (self.min_j[i], j,
-                                                         self.max_j[i])
+            assert x >= 0 
+            assert min_j[i] <= j <= max_j[i]
+            assert min_i[j] <= i <= max_j[j]
         return
 
     def deterministic(self, Y_given_X:IntArray):
@@ -277,8 +305,10 @@ class CS_Matrix:
             for i in range(n):
                 out[(i, Y_given_X[i])] = 1.0
             return out
-        out = jit(Y_given_X)
-        return self.new(out)
+        d = jit(Y_given_X)
+        out = self.new(d)
+        out.Y_given_X = Y_given_X
+        return out
 
     def allclose(self, other):
         diff = self - other
@@ -493,18 +523,18 @@ def PrpRe(M: CS_Matrix, P_X: FloatArray):
     with PrintStartEnd('PrpRe-build'):
         P_XY = M.new(d_XY)
         P_Y_given_X = P_XY * (1 / P_X[:, None])
+        P_Y_given_X.P_XY = P_XY
 
-    return P_Y_given_X, locals()
+    return P_Y_given_X
 
 
 def PrpReBa(M: CS_Matrix, P_X: FloatArray, pre=None):
     # Improve bandwidth
     n, m = M.n, M.m
-    P_Y_given_X, scope = pre or PrpRe(M, P_X)
-    old_P_XY: CS_Matrix = scope['P_XY']
+    P_Y_given_X = pre or PrpRe(M, P_X)
+    old_P_XY: CS_Matrix = P_Y_given_X.P_XY or P_Y_given_X * P_X[:,None]
 
     P_XY_max = old_P_XY.max(axis=0)
-    old_d_XY = old_P_XY.d
     min_j, max_j = M.min_j, M.max_j
     min_i, max_i = M.min_i, M.max_i
 
@@ -528,58 +558,66 @@ def PrpReBa(M: CS_Matrix, P_X: FloatArray, pre=None):
                     if ans > ANS:
                         ANS, ANS_i = ans, i
                 tups.append((ANS_i, j))
-        return tups
-    with PrintStartEnd('PrpReBa-jit1'):
-        tups = jit1(old_d_XY)
-        tups = np.array(tups, dtype=int)
 
-
-    with PrintStartEnd('PrpReBa-nojit'):
-        pinned = [[] for i in range(n)]
-        # Pin them
+        pinned = numba.typed.List()
+        for _ in range(n):
+            pinned.append(numba.typed.List.empty_list(numba.types.int64))
         for i,j in tups:
             pinned[i].append(j)
-        pinned = ak.Array(pinned)
+        return pinned
+    with PrintStartEnd('PrpReBa-jit1'):
+        pinned = jit1(old_P_XY.d)
 
     @numba.njit
-    def jit2(old_d_XY: Cache, tups):
-        return {(i,j): old_d_XY[(i, j)] for i,j in tups}
-
-    # d_XY:Cache = numba.typed.Dict.empty(
-    #     key_type=numba.types.UniTuple(numba.types.int64, 2),
-    #     value_type=numba.float64,
-    # )
-    with PrintStartEnd('PrpReBa-jit2'):
-        d_XY = jit2(old_d_XY, tups)
-
-    @numba.njit
-    def jit3(d_XY: Cache, pinned,P_X, P_XY_max):
+    def jit3(prev_XY: Cache, pinned,P_X, P_XY_max):
+        d_XY = {}
+        row = numba.typed.List()
+        col = numba.typed.List()
+        for _ in range(n):
+            row.append(numba.typed.List.empty_list(numba.types.int64))
+        for _ in range(m):
+            col.append(numba.typed.List.empty_list(numba.types.int64))
+        
         # Greedily assign the rest favoring the leftmost
         for i in range(n):
             budget = P_X[i]
             for j in pinned[i]:
-                budget -= d_XY[(i, j)]
+                d_XY[(i,j)] = prev_XY[(i,j)]
+                budget -= prev_XY[(i, j)]
+                row[i].append(j)
+                col[j].append(i)
+            if budget<=0:
+                continue
             for j in range(min_j[i], max_j[i] + 1):
-                # if np.allclose(budget, 0, rtol=1e-12,atol=1e-12, equal_nan=True):
-                #     break
-                if budget < 1e-15:
-                    break
                 if j in pinned[i]:
                     continue
-                db = min(budget, P_XY_max[j])
-                d_XY[(i, j)] = db
-                budget -= db
+                row[i].append(j)
+                col[j].append(i)
+                if P_XY_max[j] < budget:
+                    d_XY[(i, j)] = P_XY_max[j]
+                    budget -= P_XY_max[j]
+                else:
+                    d_XY[(i, j)] = budget
+                    break
             #assert np.allclose(budget, 0)
-        return d_XY
+        return d_XY, row, col
+
+    # print(HPY.heap().byrcs)
 
     with PrintStartEnd('PrpReBa-jit3'):
-        d_XY = jit3(d_XY, pinned, P_X, P_XY_max)
-
-    with PrintStartEnd('PrpReBa-new'):
-        P_XY = M.new(d_XY)
+        d_XY, row, col = jit3(old_P_XY.d, pinned, P_X, P_XY_max)
+        P_XY = M._new(d=d_XY, row=row, col=col)
+        del jit3
+        del pinned
+        del P_XY_max
+    # print(HPY.heap().byrcs)
+    # print(HPY.heap().byid[0].sp)
     with PrintStartEnd('PrpReBa-product'):
         P_Y_given_X = P_XY * (1 / P_X[:, None])
-    return P_Y_given_X, locals()
+        del P_XY
+    # print(HPY.heap().byrcs)
+    # print(HPY.heap().byid[0].sp)
+    return P_Y_given_X
 
 
 def PopRe(M: CS_Matrix, P_X: FloatArray):
@@ -650,14 +688,15 @@ def PopRe(M: CS_Matrix, P_X: FloatArray):
             if hi < HI:
                 Q.append((hi, HI))
     P_Y_given_X = M.deterministic(Y_given_X)
-    return P_Y_given_X, locals()
+    return P_Y_given_X
 
 
 def PopReBa(M: CS_Matrix, P_X: FloatArray, pre=None):
-    P_Y_given_X, scope = pre or PopRe(M, P_X)
+    P_Y_given_X = pre or PopRe(M, P_X)
     n, m = M.n, M.m
     min_j = M.min_j
-    Y_given_X = scope['Y_given_X']
+    Y_given_X = P_Y_given_X.Y_given_X
+    assert Y_given_X is not None
 
     P_XY_max = (P_Y_given_X * P_X[:, None]).max(axis=0)
 
@@ -672,11 +711,11 @@ def PopReBa(M: CS_Matrix, P_X: FloatArray, pre=None):
     with PrintStartEnd('PopReBa-jit1'):
         Y_given_X = jit1()
     P_Y_given_X = M.deterministic(Y_given_X)
-    return P_Y_given_X, locals()
+    return P_Y_given_X
 
 
 def PopReSh(M: CS_Matrix, P_X: FloatArray, pre=None):
-    P_Y_given_X, scope = pre or PopRe(M, P_X)
+    P_Y_given_X = pre or PopRe(M, P_X)
     n, m = M.n, M.m
     min_j, max_j = M.min_j, M.max_j
     min_i, max_i = M.min_i, M.max_i
@@ -691,96 +730,6 @@ def PopReSh(M: CS_Matrix, P_X: FloatArray, pre=None):
             for i in range(n)
         ])
         poss_j:List[List[int]] = poss_j # Mere type hinting
-
-    @numba.njit
-    def iterative_DP(P_X: FloatArray):
-        INF = 1e30
-        cache:Dict[Tuple[int,int],float] = {}
-        cache_j:Dict[Tuple[int,int],int] = {}
-        for LO in range(m, -1, -1):
-            for HI in range(LO, m+1):
-                if LO == HI:
-                    cache[(LO,HI)] = 0.0
-                    continue
-                ANS, ANS_j = INF, -1
-                for j in range(LO, HI):
-                    # Greedy capture: all elems are mapped to j
-                    captured = []
-                    for i in range(min_i[j], max_i[j] + 1):
-                        if poss_j[i][-1] >= HI:
-                            break
-                        if LO<=poss_j[i][0] <= poss_j[i][0] <= j <= poss_j[i][-1] < HI:
-                            captured.append(i)
-                    if not captured:
-                        continue
-                    # Subproblems
-                    lo, hi = j, j + 1
-                    s = 0.
-                    for i in captured:
-                        s += P_X[i]
-                    mid_shannon = 0.0 if s==0.0 else -s * np.log2(s)
-                    ans = cache[(LO, lo)] + mid_shannon + cache[(hi, HI)]
-                    if ans < ANS:
-                        ANS, ANS_j = ans, j
-                if ANS_j == -1:
-                    cache[(LO,HI)] = 0.0
-                    continue
-                cache[(LO, HI)] = ANS
-                cache_j[(LO, HI)] = ANS_j
-        return cache, cache_j
-
-    @numba.njit
-    def stack_DP_working(P_X: FloatArray):
-        INF = 1e30
-        cache: Dict[Tuple[int,int],float] = {}
-        cache_j: Dict[Tuple[int,int],int] = {}
-        call = [(0,m)]
-        while call:
-            (LO, HI) = call.pop()
-            if (LO,HI) in cache:
-                continue
-            elif LO == HI:
-                cache[(LO,HI)] = 0.0
-                continue
-            ANS, ANS_j = INF, -1
-            deps = []
-            for j in range(LO, HI):
-                # Greedy capture: all elems are mapped to j
-                captured = []
-                for i in range(min_i[j], max_i[j] + 1):
-                    if poss_j[i][-1] >= HI:
-                        break
-                    if LO<=poss_j[i][0] <= poss_j[i][0] <= j <= poss_j[i][-1] < HI:
-                        captured.append(i)
-                if not captured:
-                    continue
-
-                # Subproblems
-                lo, hi = j, j + 1
-                if (LO,lo) not in cache:
-                    deps.append((LO,lo))
-                if (hi,HI) not in cache:
-                    deps.append((hi,HI))
-                if not deps:
-                    s = 0.
-                    for i in captured:
-                        s += P_X[i]
-                    mid_shannon = 0.0 if s==0.0 else -s * np.log2(s)
-                    ans = cache[(LO, lo)] + mid_shannon + cache[(hi, HI)]
-                    if ans < ANS:
-                        ANS, ANS_j = ans, j
-            if not deps:
-                if ANS_j == -1:
-                    cache[(LO,HI)] = 0.0
-                    continue
-                cache[(LO, HI)] = ANS
-                cache_j[(LO, HI)] = ANS_j
-            else:
-                call.append((LO,HI))
-                # sort decreasing by size to solve simple subproblems first
-                deps.sort(key=lambda x: x[1]-x[0], reverse=True)
-                call.extend(deps)
-        return cache, cache_j
     
     @numba.njit
     def stack_DP(P_X: FloatArray):
@@ -847,7 +796,7 @@ def PopReSh(M: CS_Matrix, P_X: FloatArray, pre=None):
         print((m*(m-1)*(m-2))//6)
         cache, cache_j = stack_DP(P_X)
     with PrintStartEnd('PopReSh-post'):
-        Y_given_X = scope['Y_given_X'].copy() #np.array([-10] * n)
+        Y_given_X = P_Y_given_X.Y_given_X.copy() #np.array([-10] * n)
         Q: List[Tuple[int, int]] = [(0, m)]
         while Q:
             LO, HI = Q.pop()
@@ -868,7 +817,7 @@ def PopReSh(M: CS_Matrix, P_X: FloatArray, pre=None):
         assert np.all(Y_given_X>=0), (Y_given_X, cache[(0,m)])
     with PrintStartEnd('PopRe-matrix-build', 3):
         P_Y_given_X = M.deterministic(Y_given_X)
-    return P_Y_given_X, locals()
+    return P_Y_given_X
 
 
 def PopSh(M: CS_Matrix, P_X: FloatArray):
@@ -930,7 +879,7 @@ def PopSh(M: CS_Matrix, P_X: FloatArray):
             i = next_i
 
     P_Y_given_X = M.deterministic(Y_given_X)
-    return P_Y_given_X, locals()
+    return P_Y_given_X
 
 
 def nodeJS():
@@ -985,7 +934,7 @@ def eye_tests():
     expected = M.deterministic(M.min_j)
     for name, (solver, _) in the_solvers.items():
         print(f'{name} c={c}')
-        P_Y_given_X, scope = solver(M, P_X)
+        P_Y_given_X = solver(M, P_X)
         print(f'checking output...')
         assert expected.allclose(P_Y_given_X)
         print(f'ok')
@@ -1007,7 +956,7 @@ def measure(solver, S_X: IntArray, P_X: FloatArray, c: float, **kwargs):
     #     P_Y_given_X = M.deterministic(M.min_j)
     #     scope = {}
     # else:
-    P_Y_given_X, scope = solver(M, P_X, **kwargs)
+    P_Y_given_X = solver(M, P_X, **kwargs)
     end = time.time()
     elapsed = end - start
 
@@ -1042,7 +991,7 @@ def measure(solver, S_X: IntArray, P_X: FloatArray, c: float, **kwargs):
     def bandwidth_factor():
         in_size = P_XY * S_X[:, None]
         out_size = P_XY * S_Y[None, :]
-        used_bandwidth = (out_size - in_size).sum()
+        used_bandwidth = (out_size - in_size).sum(axis=0).sum()
         min_bandwidth = np.dot(P_X, S_X)
         return used_bandwidth / min_bandwidth
 
@@ -1058,8 +1007,7 @@ def measure(solver, S_X: IntArray, P_X: FloatArray, c: float, **kwargs):
         'bandwidth': bandwidth,
         'name': solver.__name__,
     }
-    alg_output = P_Y_given_X, scope
-    return measurements, alg_output
+    return measurements, P_Y_given_X
 
 
 def bound_test_nodeJS():
@@ -1126,7 +1074,7 @@ def main(S_X: IntArray, P_X: FloatArray, solver_name='all'):
     _df = []
     with open(cwd / '__exec_files' / f'{len(S_X)}-{solver_name}.py.txt',
               'a') as f:
-        for c in [1, 1, 1.02, 1.04, 1.06, 1.08, 1.1]:
+        for c in [1,1,1.02, 1.04, 1.06, 1.08, 1.1]:
             # The first c=1 is to see the the JIT time.
             Measurements = {}
             Outputs = {}
@@ -1204,7 +1152,7 @@ def correctness_tests(n_cases=5000, n_objects=10, also_brute_force=False):
             Y_given_X = min(product(*poss_j), key=key)
             Y_given_X = np.array(Y_given_X, dtype=int)
             P_Y_given_X = M.deterministic(Y_given_X)
-            return P_Y_given_X, locals()
+            return P_Y_given_X
 
         return minimizer
 
@@ -1342,9 +1290,9 @@ def find_paper_example_PopReSh(n_objects=10, n_examples=10):
     while n_examples >= 0:
         S_X, P_X, c = generate(max_n_objects=n_objects)
         # c = 1.1
-        m1, (out1, _) = measure(PopSh, S_X, P_X, c)
-        m2, (out2, _) = measure(PopRe, S_X, P_X, c)
-        m3, (out3, _) = measure(PopReSh, S_X, P_X, c)
+        m1, out1 = measure(PopSh, S_X, P_X, c)
+        m2, out2 = measure(PopRe, S_X, P_X, c)
+        m3, out3 = measure(PopReSh, S_X, P_X, c)
         if m1['renyi'] != m2['renyi'] and m2['shannon'] != m3['shannon']:
             example = ExamplePlot(S_X, P_X, c)
             print(S_X, P_X, c)
@@ -1365,9 +1313,9 @@ def actual_paper_example_PopReSh():
     #P_X /= P_X.sum()
     P_X = np.array([0.22, 0.05, 0.23 , 0.12, 0.18, 0.20])
     c = 1.1
-    m1, (out1, _) = measure(PopSh, S_X, P_X, c)
-    m2, (out2, _) = measure(PopRe, S_X, P_X, c)
-    m3, (out3, _) = measure(PopReSh, S_X, P_X, c)
+    m1, out1 = measure(PopSh, S_X, P_X, c)
+    m2, out2 = measure(PopRe, S_X, P_X, c)
+    m3, out3 = measure(PopReSh, S_X, P_X, c)
     assert m1['renyi'] != m2['renyi'] and m2['shannon'] != m3['shannon']
     example = ExamplePlot(S_X, P_X, c)
     print(S_X, P_X, c)
