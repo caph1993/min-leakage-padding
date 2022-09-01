@@ -125,6 +125,8 @@ class CS_Matrix:
         m = out.m = self.m
         out.min_j = self.min_j
         out.max_j = self.max_j
+        out.min_i = self.min_i
+        out.max_i = self.max_i
         out.S_X = self.S_X
         out.S_Y = self.S_Y
         if d is None:
@@ -290,7 +292,7 @@ class CS_Matrix:
                 continue
             assert x >= 0 
             assert min_j[i] <= j <= max_j[i]
-            assert min_i[j] <= i <= max_j[j]
+            assert min_i[j] <= i <= max_i[j]
         return
 
     def deterministic(self, Y_given_X:IntArray):
@@ -960,6 +962,8 @@ def measure(solver, S_X: IntArray, P_X: FloatArray, c: float, **kwargs):
     end = time.time()
     elapsed = end - start
 
+    # return {'renyi': -1,'shannon': -1,'elapsed': elapsed,'bandwidth': -1,'name': solver.__name__}, P_Y_given_X
+
     with PrintStartEnd('check'):
         print('Verifying solution...')
         h_sum = P_Y_given_X.sum(axis=1)
@@ -967,7 +971,7 @@ def measure(solver, S_X: IntArray, P_X: FloatArray, c: float, **kwargs):
         P_Y_given_X.check()
 
     with PrintStartEnd('joint'):
-        print('Computing join matrix...')
+        print('Computing joint matrix...')
         P_X = np.array(P_X)
         P_XY = P_Y_given_X * P_X[:, None]
 
@@ -1074,7 +1078,7 @@ def main(S_X: IntArray, P_X: FloatArray, solver_name='all'):
     _df = []
     with open(cwd / '__exec_files' / f'{len(S_X)}-{solver_name}.py.txt',
               'a') as f:
-        for c in [1,1,1.02, 1.04, 1.06, 1.08, 1.1]:
+        for c in [1, 1, 1.02, 1.04, 1.06, 1.08, 1.1]:
             # The first c=1 is to see the the JIT time.
             Measurements = {}
             Outputs = {}
@@ -1094,6 +1098,9 @@ def main(S_X: IntArray, P_X: FloatArray, solver_name='all'):
                     metrics['elapsed'] += prev['elapsed']
 
                 Outputs[name] = output
+                # if name=='PrpReBa': # free up memory
+                #     del Outputs[name]
+                #     del output
                 Measurements[name] = metrics
 
                 metrics = {'name': name, 'c': c, **metrics}
