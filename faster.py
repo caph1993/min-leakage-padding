@@ -1334,6 +1334,24 @@ def actual_paper_example_PopReSh():
     next(vpath)
     return
 
+def find_paper_example_PopRe_PopSh(n_objects=10, n_examples=10):
+    vpath = new_visualizer('Example')
+    tc = 1
+    while n_examples >= 0:
+        S_X, P_X, c = generate(max_n_objects=n_objects)
+        # c = 1.1
+        m1, out1 = measure(PopSh, S_X, P_X, c)
+        m2, out2 = measure(PopRe, S_X, P_X, c)
+        if m1['renyi'] != m2['renyi'] and m1['shannon'] != m2['shannon']:
+            example = ExamplePlot(S_X, P_X, c)
+            print(S_X, P_X, c)
+            example.plot(out1, m1, save=vpath.png(), printer=vpath.print)
+            next(vpath)
+            example.plot(out2, m2, save=vpath.png(), printer=vpath.print)
+            next(vpath)
+            n_examples -= 1
+        tc += 1
+    return
 
 def cli():
     from argparse import ArgumentParser
@@ -1370,6 +1388,8 @@ def cli():
         find_paper_example_PopReBa()
     elif command == 'actual_paper_example_PopReSh':
         actual_paper_example_PopReSh()
+    elif command == 'find_paper_example_PopRe_PopSh':
+        find_paper_example_PopRe_PopSh()
     else:
         print(__doc__)
         raise NotImplementedError(command)
