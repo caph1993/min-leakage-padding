@@ -14,7 +14,7 @@ pip3 install numpy --upgrade # We use numpy.typing
 # Large means all, i.e. around 500k.
 python3 main.py inspect_data # Histograms of the dataset
 python3 main.py small_all # Takes less than 10 seconds
-python3 main.py medium_all # Takes less than 3 minutes
+python3 main.py medium_all # Takes around 30 minutes due to PrpSh
 #python3 main.py large_all # Takes several days to run due to PopSh complexity
 python3 main.py large_PrpReBa # If you only care about PrpReBa (Renyi then bandwidth)
 
