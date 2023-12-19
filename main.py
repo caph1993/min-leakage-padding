@@ -21,7 +21,7 @@ import sys
 import time
 from typing import List, Optional, Sequence, Union
 import numpy as np
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Any, cast
 from scipy.sparse import dok_array
 from tqdm import tqdm as _tqdm
 import pandas as pd
@@ -123,7 +123,8 @@ class CS_Matrix:
         return self.dok.sum(axis=axis)
 
     def max(self, axis=None) -> FloatArray:
-        return self.dok.asformat("coo").max(axis=axis).toarray().ravel()
+        mat: Any = self.dok.asformat("coo")
+        return mat.max(axis=axis).toarray().ravel()
 
     def xlog2x(self):
         dok = self.dok
@@ -132,6 +133,9 @@ class CS_Matrix:
         masked = dok[mask].toarray()
         out_dok[mask] = masked * np.log2(masked)
         return self.new(out_dok)
+
+    def nonzero(self):
+        return self.dok.nonzero()
 
     def __sub__(self, other):  # Subtraction
         return self.new(self.dok - other.dok)
@@ -234,7 +238,7 @@ class ExamplePlot:
         self,
         P_Y_given_X: CS_Matrix,
         measurements,
-        ax: Optional[plt.Axes] = None,
+        ax: Optional[plt.Axes] = None,  # type: ignore
         save: Optional[Path] = None,
         tight=True,
         printer=None,
@@ -390,7 +394,7 @@ def PrpReBa(M: CS_Matrix, P_X: FloatArray, pre=None):
 
     # Greedily assign the rest favoring the leftmost
     for i in tqdm(range(n)):
-        budget = P_X[i] - sum(P_XY[i, j] for j in pinned[i])
+        budget: float = P_X[i] - sum(P_XY[i, j] for j in pinned[i])  # type:ignore
         for j in range(min_j[i], max_j[i] + 1):
             if np.allclose(budget, 0, atol=1e-12):
                 break
@@ -418,13 +422,13 @@ def PopRe(M: CS_Matrix, P_X: FloatArray):
         assert LO <= HI
         if LO == HI:
             return (0, n + 1, LO, HI)
-        i_max = LO + np.argmax(P_X[LO:HI])
+        i_max = LO + np.argmax(P_X[LO:HI])  # type: ignore
         ANS = (float("inf"), n + 1, n + 1, n + 1)
         for j_max in range(min_j[i_max], max_j[i_max] + 1):
             lo = max(LO, min_i[j_max])
             hi = min(HI, max_i[j_max] + 1)
             assert LO <= lo <= i_max <= hi <= HI
-            renyi = f(LO, lo)[0] + P_X[i_max] + f(hi, HI)[0]
+            renyi: float = f(LO, lo)[0] + P_X[i_max] + f(hi, HI)[0] # type: ignore
             ans = (renyi, j_max, lo, hi)
             ANS = min(ANS, ans)
         return ANS
@@ -728,7 +732,7 @@ def measure(solver, S_X: IntArray, P_X: FloatArray, c: float, **kwargs):
 
     print("Computing join matrix...")
     P_X = np.array(P_X)
-    P_XY = P_Y_given_X * P_X[:, None]
+    P_XY: CS_Matrix = P_Y_given_X * P_X[:, None]
 
     def leakages():
         P_Y = P_XY.sum(axis=0)
@@ -754,10 +758,28 @@ def measure(solver, S_X: IntArray, P_X: FloatArray, c: float, **kwargs):
         min_bandwidth = np.dot(P_X, S_X)
         return used_bandwidth / min_bandwidth
 
+    def bandwidth_factor_quantiles():
+        maskX, maskY = P_XY.nonzero()
+        P_1D = P_XY[(maskX, maskY)].toarray()[0]
+        min_bandwidth = np.dot(P_X, S_X)
+        delta = S_Y[maskY] - S_X[maskX]
+        delta = delta / min_bandwidth
+        idx = np.argsort(delta)
+        delta = delta[idx]
+        P_1D = P_1D[idx]
+        Q_1D = np.cumsum(P_1D)
+        Q05 = np.interp(0.05, Q_1D, delta)
+        Q1 = np.interp(0.25, Q_1D, delta)
+        Q2 = np.interp(0.5, Q_1D, delta)
+        Q3 = np.interp(0.75, Q_1D, delta)
+        Q95 = np.interp(0.95, Q_1D, delta)
+        return Q05, Q1, Q2, Q3, Q95
+
     print("Computing leakages...")
     renyi, shannon = leakages()
     print("Computing bandwidths...")
     bandwidth = bandwidth_factor()
+    quantiles = bandwidth_factor_quantiles()
     print("Done.")
     measurements = {
         "renyi": renyi,
@@ -765,6 +787,11 @@ def measure(solver, S_X: IntArray, P_X: FloatArray, c: float, **kwargs):
         "elapsed": elapsed,
         "bandwidth": bandwidth,
         "name": solver.__name__,
+        "bandwidth_05": quantiles[0],
+        "bandwidth_25": quantiles[1],
+        "bandwidth_50": quantiles[2],
+        "bandwidth_75": quantiles[3],
+        "bandwidth_95": quantiles[4],
     }
     alg_output = P_Y_given_X, scope
     return measurements, alg_output
@@ -791,7 +818,7 @@ def bound_test_nodeJS():
 
 def inspect_data():
     vpath = new_visualizer()
-    for (S_X, P_X) in [
+    for S_X, P_X in [
         sub_dataset(*nodeJS(), 100),
         sub_dataset(*nodeJS(), 1000),
         nodeJS(),

@@ -1,0 +1,16 @@
+
+Reimplementation of all the algorithms using n x m sparse matrices.
+
+To run from command line, just
+
+    python this_file.py COMMAND
+
+COMMAND should be one of:
+        large_all:                 run all algorithms      in nodeJS dataset
+        medium_all:                run all algorithms      in subset of nodeJS dataset
+        large_PopReBa:             run PopReBa in nodeJS dataset
+        large_PopRe:               run PopRe      in nodeJS dataset
+        medium_PopSh:              run PopSh    in subset of nodeJS dataset
+        
+        etc. (see the dictionary called "the_solvers" for all solvers, and function cli for more commands)
+
