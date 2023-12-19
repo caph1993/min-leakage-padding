@@ -2,7 +2,7 @@ How to execute all the examples of this repository:
 
 
 ```sh
-pip3 install scipy matplotlib numpy Pillow PySimpleGUI numba awkward # See requirements.txt
+pip3 install scipy matplotlib numpy Pillow PySimpleGUI numba awkward tqdm pandas # See requirements.txt
 # Be sure of being updated:
 pip3 install scipy --upgrade # We use dok arrays for sparse matrices (in main.py)
 pip3 install numpy --upgrade # We use numpy.typing
